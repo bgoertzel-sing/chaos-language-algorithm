@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chaoslang"
+version = "0.1.0"
+description = "Pure-Python Chaos Language Algorithm prototype"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary research prototype"}
+authors = [{name = "OpenClaw Research Agent"}]
+
+[tool.setuptools.packages.find]
+where = ["src"]
