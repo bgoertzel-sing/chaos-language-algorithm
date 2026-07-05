@@ -7,7 +7,7 @@ category occurrences retain their chosen member for exact reconstruction.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, Sequence, Union
 
 
 @dataclass(frozen=True, order=True)
@@ -36,7 +36,7 @@ class CategoryOccurrence:
         return f"{self.category}[{self.member.value}]"
 
 
-ParseEntry = Token | CategoryOccurrence
+ParseEntry = Union[Token, CategoryOccurrence]
 
 
 @dataclass(frozen=True)
@@ -136,7 +136,7 @@ class Proposal:
     provenance: Mapping[str, object] = field(default_factory=dict)
 
 
-ProposalLike = ChunkProposal | CategoryProposal | Proposal
+ProposalLike = Union[ChunkProposal, CategoryProposal, Proposal]
 
 
 def token_text(entry: ParseEntry) -> str:
