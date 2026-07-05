@@ -6,6 +6,7 @@ import random
 from typing import Iterable, Sequence
 
 from .categorization.context import ContextCategoryInducer
+from .categorization.js_inducer import JSCategoryInducer
 from .core.edits import EditApplier
 from .core.types import GrammarState, ParseEntry, Token, expand_parse
 from .mining.ngram import NGramPatternMiner
@@ -51,6 +52,8 @@ class CLA:
         max_ngram: int | None = None,
         min_uses: int = 2,
         enable_categories: bool = True,
+        category_method: str = "exact",
+        js_threshold: float = 0.1,
     ) -> None:
         self.max_iterations = max_iterations
         self.seed = seed
@@ -61,7 +64,13 @@ class CLA:
         self.miner = NGramPatternMiner(n_min=n_min, n_max=n_max, min_uses=min_uses)
         self.applier = EditApplier()
         self.scorer = SimpleMDLScorer()
-        self.category_inducer = ContextCategoryInducer()
+
+        if category_method == "js":
+            self.category_inducer = JSCategoryInducer(threshold=js_threshold)
+        elif category_method == "exact":
+            self.category_inducer = ContextCategoryInducer()
+        else:
+            raise ValueError(f"unknown category_method: {category_method!r}; use 'exact' or 'js'")
 
     @classmethod
     def simple(cls, max_iterations: int = 8, seed: int = 0, **kwargs: object) -> "CLA":
