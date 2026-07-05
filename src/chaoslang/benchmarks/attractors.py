@@ -69,6 +69,74 @@ def rossler(
     return _integrate_rk4(field, tuple(float(v) for v in initial), steps, dt, discard)
 
 
+
+def mackey_glass(
+    *,
+    steps: int = 128,
+    dt: float = 0.1,
+    initial: float = 0.5,
+    tau: int = 17,
+    beta: float = 0.2,
+    gamma: float = 0.1,
+    n: float = 10.0,
+    discard: int = 0,
+) -> tuple[float, ...]:
+    """Return a Mackey-Glass delay-differential trajectory.
+
+    Uses a fixed-step Euler method with a discrete delay buffer of ``tau``
+    steps.  The history is initialised to ``initial`` for all delayed samples.
+    """
+    if steps < 0 or discard < 0:
+        raise ValueError("steps and discard must be non-negative")
+    if dt <= 0.0:
+        raise ValueError("dt must be positive")
+    if tau < 1:
+        raise ValueError("tau must be at least 1")
+
+    # History buffer: tau past values all initialised to initial.
+    history: list[float] = [float(initial)] * tau
+    x = float(initial)
+    out: list[float] = []
+    for i in range(steps + discard):
+        x_tau = history[i]  # value tau steps ago
+        dx = beta * x_tau / (1.0 + x_tau ** n) - gamma * x
+        x = x + dt * dx
+        history.append(x)
+        if i >= discard:
+            out.append(x)
+    return tuple(out)
+
+
+def lorenz96(
+    *,
+    steps: int = 128,
+    dt: float = 0.01,
+    initial: Sequence[float] = (8.0, 8.0, 8.0, 8.0, 8.01),
+    F: float = 8.0,
+    discard: int = 0,
+) -> tuple[Point, ...]:
+    """Return a Lorenz-96 trajectory using deterministic fixed-step RK4.
+
+    The system dimension is inferred from ``initial``.  Standard forcing
+    ``F=8`` with dimension >= 4 yields chaotic behaviour.
+    """
+    dims = len(initial)
+    _validate_flow_args(steps, discard, dt, initial, dims)
+
+    def field(p: Point) -> Point:
+        vals = list(p)
+        dx = []
+        for i in range(dims):
+            # dx_i = (x_{i+1} - x_{i-2}) * x_{i-1} - x_i + F
+            x_next = vals[(i + 1) % dims]
+            x_prev2 = vals[(i - 2) % dims]
+            x_prev1 = vals[(i - 1) % dims]
+            dx.append((x_next - x_prev2) * x_prev1 - vals[i] + F)
+        return tuple(dx)
+
+    return _integrate_rk4(field, tuple(float(v) for v in initial), steps, dt, discard)
+
+
 def equal_width_symbols(values: Sequence[float], bins: int = 4, prefix: str = "s") -> tuple[str, ...]:
     """Symbolize scalar values with equal-width bins inferred from the values."""
 
