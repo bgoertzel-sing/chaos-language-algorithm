@@ -24,14 +24,19 @@ PYTHONPATH=src /usr/local/bin/python3.9 -m unittest discover -s tests -v
 - Mackey-Glass generator: Euler method with discrete delay buffer (tau=17, beta=0.2, gamma=0.1, n=10)
 - Lorenz-96 generator: RK4 with variable dimension from initial, default F=8 with perturbation
 - m1_controls CLI supports all 5 systems with --dimension and --seed parameters
-- 39 tests passing (includes nested-prune regression tests)
-- Latest commit: `1501346` (dimensionality scaling experiments + CLI params)
+- 47 tests passing (includes nested-prune regression + JS integration tests)
+- Latest commit: `d1fd8f9` (JS-divergence context clustering integration)
 - Note: git push is done from the OpenClaw host (not the Mac) due to macOS keychain SSH limitations
 - Benchmark experiments complete for all 5 attractor systems (Lorenz-63, Rossler, Mackey-Glass, Lorenz-96, logistic map)
 - Dimensionality scaling experiments complete: Lorenz-96 dims 8,12,16,20,24 -- all pass exact reconstruction
 - Nested prune bug fixed: pruned rules are now expanded in other production RHS (not just in parse)
 - Compression degrades with dimension: 0.17 bits/symbol (Mackey-Glass dim=1) to 0.98 bits/symbol (Lorenz-96 dim=24)
 - Near-incompressible regime reached at dim~16 with 4 bins and 256 steps
+- JS-divergence context clustering integrated into category proposal generation
+  - New JSCategoryInducer clusters tokens by context distribution similarity (threshold parameter)
+  - CLA API gains category_method (exact|js) and js_threshold parameters
+  - At threshold=0.0, JS inducer matches exact signature grouping behavior
+  - 8 new integration tests covering overlap clustering, exact match, dissimilar tokens, reconstruction, determinism
 
 ## Mandate: Attractor benchmark sprint
 
@@ -40,12 +45,12 @@ PYTHONPATH=src /usr/local/bin/python3.9 -m unittest discover -s tests -v
 1. ~~Mackey-Glass and Lorenz-96 trajectory generators~~ ✅ DONE
 2. ~~Recorded benchmark experiments~~ ✅ DONE — run CLA on Lorenz-63, Rössler, Mackey-Glass, Lorenz-96, and logistic map with recorded seeds/parameters. Create experiment records under `experiments/` with RUN.md (command, parameters, seed, outputs, conclusion).
 3. ~~Dimensionality scaling~~ ✅ DONE — include benchmark dimensions up to OmegaSim starter-vector dimensionality. Defer much higher-dimensional traces until a dedicated dimension-reduction step exists.
-4. **JS-divergence context clustering** — integrate into category proposal generation (currently a seam only).
+4. ~~JS-divergence context clustering~~ ✅ DONE — integrated JSCategoryInducer with threshold parameter into CLA API (category_method="js").
 5. **Persistence** — JSON grammar/state format, edit-log replay, deterministic seeds, stable text rendering.
 
 ### Next task
 
-Task 4: JS-divergence context clustering -- integrate into category proposal generation (currently a seam only). Then Task 5: Persistence (JSON grammar/state format, edit-log replay, deterministic seeds).
+Task 5: Persistence — JSON grammar/state format, edit-log replay, deterministic seeds, stable text rendering.
 
 ### Constraints
 
