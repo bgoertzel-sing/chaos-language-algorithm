@@ -24,8 +24,8 @@ PYTHONPATH=src /usr/local/bin/python3.9 -m unittest discover -s tests -v
 - Mackey-Glass generator: Euler method with discrete delay buffer (tau=17, beta=0.2, gamma=0.1, n=10)
 - Lorenz-96 generator: RK4 with variable dimension from initial, default F=8 with perturbation
 - m1_controls CLI supports all 5 systems with --dimension and --seed parameters
-- 47 tests passing (includes nested-prune regression + JS integration tests)
-- Latest commit: `d1fd8f9` (JS-divergence context clustering integration)
+- 64 tests passing (47 original + 17 persistence tests)
+- Latest commit: `e64b1d0` (persistence: JSON serialization, edit-log replay, text rendering)
 - Note: git push is done from the OpenClaw host (not the Mac) due to macOS keychain SSH limitations
 - Benchmark experiments complete for all 5 attractor systems (Lorenz-63, Rossler, Mackey-Glass, Lorenz-96, logistic map)
 - Dimensionality scaling experiments complete: Lorenz-96 dims 8,12,16,20,24 -- all pass exact reconstruction
@@ -37,6 +37,13 @@ PYTHONPATH=src /usr/local/bin/python3.9 -m unittest discover -s tests -v
   - CLA API gains category_method (exact|js) and js_threshold parameters
   - At threshold=0.0, JS inducer matches exact signature grouping behavior
   - 8 new integration tests covering overlap clustering, exact match, dissimilar tokens, reconstruction, determinism
+- Persistence module implemented (src/chaoslang/persistence.py)
+  - state_to_json/state_from_json: full GrammarState round-trip to JSON
+  - replay_edits: deterministic reconstruction from edit log + raw symbols
+  - grammar_to_text: stable human-readable rendering with sections (Corpus, Parse, Productions, Categories, Score, History, Edit Log)
+  - model_to_json: CLAModel serialization with optional seed metadata
+  - Edit payload normalization (tuples preserved through JSON round-trip)
+  - 17 new tests covering round-trip, replay, determinism, text rendering
 
 ## Mandate: Attractor benchmark sprint
 
@@ -46,11 +53,15 @@ PYTHONPATH=src /usr/local/bin/python3.9 -m unittest discover -s tests -v
 2. ~~Recorded benchmark experiments~~ ✅ DONE — run CLA on Lorenz-63, Rössler, Mackey-Glass, Lorenz-96, and logistic map with recorded seeds/parameters. Create experiment records under `experiments/` with RUN.md (command, parameters, seed, outputs, conclusion).
 3. ~~Dimensionality scaling~~ ✅ DONE — include benchmark dimensions up to OmegaSim starter-vector dimensionality. Defer much higher-dimensional traces until a dedicated dimension-reduction step exists.
 4. ~~JS-divergence context clustering~~ ✅ DONE — integrated JSCategoryInducer with threshold parameter into CLA API (category_method="js").
-5. **Persistence** — JSON grammar/state format, edit-log replay, deterministic seeds, stable text rendering.
+5. ~~Persistence~~ ✅ DONE — JSON grammar/state format, edit-log replay, deterministic seeds, stable text rendering.
 
-### Next task
+### All sprint tasks complete
 
-Task 5: Persistence — JSON grammar/state format, edit-log replay, deterministic seeds, stable text rendering.
+All 5 mandated tasks are now complete. Potential next directions (require Ben's input):
+- Persistence-driven experiment workflows (save/load/replay benchmark runs)
+- Integration of persistence with the m1_controls CLI for reproducible pipelines
+- Higher-dimensional benchmarking with dimension-reduction preprocessing
+- OmegaSim prerequisite evaluation
 
 ### Constraints
 
