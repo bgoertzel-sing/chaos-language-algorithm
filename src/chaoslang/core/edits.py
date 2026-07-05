@@ -102,18 +102,30 @@ class EditApplier:
             for lhs in sorted(list(current.grammar.productions), key=lambda t: t.value):
                 if uses.get(lhs, 0) < self.min_rule_uses:
                     prod = current.grammar.productions[lhs]
+                    # Expand references in the parse
                     new_parse: list[ParseEntry] = []
                     for entry in current.parse:
                         if entry == lhs:
                             new_parse.extend(prod.rhs)
                         else:
                             new_parse.append(entry)
-                    productions = dict(current.grammar.productions)
-                    del productions[lhs]
+                    # Expand references in other productions' RHS
+                    # so no dangling nonterminal remains after pruning
+                    new_productions: dict[Token, Production] = {}
+                    for plhs, pprod in current.grammar.productions.items():
+                        if plhs == lhs:
+                            continue
+                        new_rhs: list[ParseEntry] = []
+                        for entry in pprod.rhs:
+                            if entry == lhs:
+                                new_rhs.extend(prod.rhs)
+                            else:
+                                new_rhs.append(entry)
+                        new_productions[plhs] = Production(plhs, tuple(new_rhs))
                     current = replace(
                         current,
                         parse=tuple(new_parse),
-                        grammar=Grammar(productions, dict(current.grammar.categories)),
+                        grammar=Grammar(new_productions, dict(current.grammar.categories)),
                         history=current.history + (f"prune {lhs.value}",),
                         edit_log=current.edit_log + (Edit("DeleteUnusedRule", {"name": lhs.value}),),
                     )
