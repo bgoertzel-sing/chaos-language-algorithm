@@ -15,6 +15,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--discard", type=int, default=16)
     parser.add_argument("--bins", type=int, default=4)
     parser.add_argument("--iterations", type=int, default=4)
+    parser.add_argument("--dimension", type=int, default=0,
+                        help="Dimension for Lorenz-96 (default: 5)")
+    parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args(argv)
 
     if args.system == "lorenz63":
@@ -24,21 +27,27 @@ def main(argv: list[str] | None = None) -> int:
     elif args.system == "mackey-glass":
         trajectory = mackey_glass(steps=args.steps, discard=args.discard)
     elif args.system == "lorenz96":
-        trajectory = lorenz96(steps=args.steps, discard=args.discard)
+        dim = args.dimension if args.dimension > 0 else 5
+        # Build initial condition: F for all dims, with small perturbation on last
+        initial = tuple([8.0] * (dim - 1) + [8.01])
+        trajectory = lorenz96(steps=args.steps, discard=args.discard, initial=initial)
     elif args.system == "logistic":
         trajectory = logistic_map(steps=args.steps, discard=args.discard)
 
     symbols = m1_symbolize(trajectory, bins=args.bins)
-    model = CLA.simple(max_iterations=args.iterations).fit_symbols(symbols)
+    model = CLA.simple(max_iterations=args.iterations, seed=args.seed).fit_symbols(symbols)
     result = {
         "system": args.system,
         "steps": args.steps,
         "discard": args.discard,
         "bins": args.bins,
+        "dimension": len(trajectory[0]) if isinstance(trajectory[0], (tuple, list)) else 1,
+        "seed": args.seed,
         "symbol_count": len(symbols),
         "unique_symbols": len(set(symbols)),
         "history": list(model.state.history),
         "score_total": model.score.total,
+        "rules_learned": len(model.grammar.productions),
         "exact_reconstruction": model.expand() == symbols,
     }
     print(json.dumps(result, sort_keys=True))
