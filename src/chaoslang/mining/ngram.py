@@ -40,11 +40,19 @@ class NGramPatternMiner:
                 if len(occurrences) >= self.min_uses:
                     raw.append((key, blocks[key], tuple(occurrences)))
         raw.sort(key=lambda item: (-(len(item[1]) - 1) * len(item[2]), len(item[1]), item[0]))
-        start = len(state.grammar.productions)
+        start = _next_chunk_index(state)
         return tuple(ChunkProposal(block, occ, f"N{start + i}") for i, (_key, block, occ) in enumerate(raw))
 
     def proposals(self, state: GrammarState) -> list[ChunkProposal]:
         return list(self.propose_chunks(state))
+
+
+def _next_chunk_index(state: GrammarState) -> int:
+    highest = -1
+    for token in state.grammar.productions:
+        if token.kind == "chunk" and token.value.startswith("N") and token.value[1:].isdigit():
+            highest = max(highest, int(token.value[1:]))
+    return highest + 1
 
 
 def select_non_overlapping(starts: Iterable[int], width: int) -> tuple[int, ...]:

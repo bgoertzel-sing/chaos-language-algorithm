@@ -9,6 +9,8 @@ It starts with exact-reconstructing symbolic grammar induction:
 
 Sprint-1 priorities are correctness, deterministic behavior, and backend-neutral seams.
 The core has no optional runtime dependencies and is tested with stdlib `unittest`.
+The first attractor-control slice includes deterministic logistic-map, Lorenz-63,
+and Rössler generators plus M1 fixed-partition symbolization.
 
 ```python
 from chaoslang import CLA
@@ -22,4 +24,10 @@ Run tests locally:
 
 ```bash
 python3 -m unittest discover -s tests -v
+```
+
+Run a tiny M1/control benchmark:
+
+```bash
+python3 -m chaoslang.benchmarks.m1_controls --system lorenz63 --steps 96 --bins 4
 ```

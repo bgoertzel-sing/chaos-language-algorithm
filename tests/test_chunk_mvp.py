@@ -45,6 +45,15 @@ class ChunkMVPTests(unittest.TestCase):
         self.assertEqual(model.expand(), tuple(symbols))
         self.assertEqual(model.state.grammar.productions, {})
 
+    def test_miner_avoids_chunk_name_collisions_after_tie_breaks(self):
+        # This M1-like stream used to accept N2 before N1, then the next mining
+        # round reused N2 and broke exact reconstruction by overwriting a rule.
+        symbols = "a a a a a a a a b b b b b b b b b c c c c c".split()
+        model = CLA.simple(max_ngram=4, max_iterations=6, enable_categories=False).fit_symbols(symbols)
+        self.assertEqual(model.expand(), tuple(symbols))
+        names = [token.value for token in model.grammar.productions]
+        self.assertEqual(len(names), len(set(names)))
+
     def test_miner_and_greedy_loop_are_deterministic(self):
         symbols = "a b a b a b c c c c".split()
         state = GrammarState.initial(symbols)
