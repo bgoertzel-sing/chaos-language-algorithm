@@ -7,6 +7,7 @@ M1 symbolization maps each trajectory point into a fixed rectangular partition.
 from __future__ import annotations
 
 from collections.abc import Sequence
+import random
 from typing import Callable
 
 Point = tuple[float, ...]
@@ -153,6 +154,56 @@ def equal_width_symbols(values: Sequence[float], bins: int = 4, prefix: str = "s
         idx = min(bins - 1, int((value - lo) / width))
         symbols.append(f"{prefix}{idx}")
     return tuple(symbols)
+
+
+def high_dimensional_lift(
+    trajectory: Sequence[Sequence[float] | float],
+    *,
+    dimension: int = 256,
+    noise: float = 0.0,
+    seed: int = 0,
+) -> tuple[Point, ...]:
+    """Lift a scalar/vector trajectory into a deterministic high-D ambient space.
+
+    The source axes are mapped through an orthonormal column frame in R^dimension,
+    with optional small deterministic Gaussian observation noise.  This is a
+    controllable stand-in for high-dimensional AI/OmegaHive embedding traces.
+    """
+
+    points = _coerce_points(trajectory)
+    if not points:
+        return ()
+    source_dims = len(points[0])
+    if dimension < source_dims:
+        raise ValueError("lift dimension must be at least the source dimension")
+    if noise < 0.0:
+        raise ValueError("noise must be non-negative")
+
+    rng = random.Random(seed)
+    columns: list[list[float]] = []
+    for _ in range(source_dims):
+        vec = [rng.gauss(0.0, 1.0) for _ in range(dimension)]
+        for prev in columns:
+            dot = sum(a * b for a, b in zip(vec, prev))
+            for i in range(dimension):
+                vec[i] -= dot * prev[i]
+        norm = sum(v * v for v in vec) ** 0.5
+        if norm <= 1e-12:
+            raise RuntimeError("failed to construct lift basis")
+        columns.append([v / norm for v in vec])
+
+    lifted: list[Point] = []
+    for point in points:
+        out = [0.0] * dimension
+        for axis, value in enumerate(point):
+            column = columns[axis]
+            for i in range(dimension):
+                out[i] += value * column[i]
+        if noise:
+            for i in range(dimension):
+                out[i] += rng.gauss(0.0, noise)
+        lifted.append(tuple(out))
+    return tuple(lifted)
 
 
 def m1_symbolize(
