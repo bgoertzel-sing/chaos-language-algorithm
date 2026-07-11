@@ -28,8 +28,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Category proposal method")
     parser.add_argument("--js-threshold", type=float, default=0.1,
                         help="Jensen-Shannon threshold when --category-method=js")
-    parser.add_argument("--symbolizer", choices=("m1", "kmeans", "tica-kmeans"), default="m1",
-                        help="Trajectory-to-symbol stream method")
+    parser.add_argument("--symbolizer", choices=("m1", "kmeans", "tica-kmeans", "dt-kmeans", "dt-tica-kmeans"), default="m1",
+                        help="Trajectory-to-symbol stream method (dt-* uses deeptime backend)")
     parser.add_argument("--microstates", type=int, default=32,
                         help="Number of adaptive microstate symbols for kmeans symbolizers")
     parser.add_argument("--embedding-dim", type=int, default=5,
@@ -38,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Time lag for --symbolizer=tica-kmeans")
     parser.add_argument("--surrogates", type=int, default=0,
                         help="If positive, run shuffled-surrogate excess-compression metric")
+    parser.add_argument("--reversible", action="store_true",
+                        help="Use TICA (symmetrized) instead of VAMP for dt-tica-kmeans")
     parser.add_argument("--heldout", action="store_true",
                         help="Report held-out next-symbol log-loss/perplexity")
     parser.add_argument("--lift-dimension", type=int, default=0,
@@ -75,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         symbols = m1_symbolize(trajectory, bins=args.bins)
     elif args.symbolizer == "kmeans":
         symbols = kmeans_microstate_symbols(trajectory, k=args.microstates, seed=args.seed)
-    else:
+    elif args.symbolizer == "tica-kmeans":
         kinetic = tica_vamp_kinetic_map(
             trajectory,
             dimension=args.embedding_dim,
@@ -90,6 +92,29 @@ def main(argv: list[str] | None = None) -> int:
             "lag": kinetic.lag,
             "shrinkage": kinetic.shrinkage,
             "singular_values": list(kinetic.singular_values),
+            "backend": "pure-python-mvp",
+        }
+    elif args.symbolizer == "dt-kmeans":
+        from chaoslang.deeptime_backend import deeptime_kmeans_microstate_symbols
+        symbols = deeptime_kmeans_microstate_symbols(trajectory, k=args.microstates, seed=args.seed)
+    else:  # dt-tica-kmeans
+        from chaoslang.deeptime_backend import deeptime_kinetic_map, deeptime_kmeans_microstate_symbols
+        kinetic = deeptime_kinetic_map(
+            trajectory,
+            dimension=args.embedding_dim,
+            lag=args.lag,
+            reversible=args.reversible,
+        )
+        symbols = deeptime_kmeans_microstate_symbols(kinetic.coordinates, k=min(args.microstates, len(kinetic.coordinates)), seed=args.seed)
+        embedding_summary = {
+            "coordinates": len(kinetic.coordinates),
+            "dimension": len(kinetic.coordinates[0]) if kinetic.coordinates else 0,
+            "input_dimension": kinetic.input_dimension,
+            "lag": kinetic.lag,
+            "singular_values": list(kinetic.singular_values),
+            "timescales": list(kinetic.timescales),
+            "cumulative_kinetic_variance": list(kinetic.cumulative_kinetic_variance),
+            "backend": kinetic.backend,
         }
     fit_start = time.perf_counter()
     model = CLA.simple(

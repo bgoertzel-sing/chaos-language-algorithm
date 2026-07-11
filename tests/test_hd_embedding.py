@@ -9,6 +9,17 @@ from chaoslang.embedding import intrinsic_dimension_participation_ratio, tica_va
 from chaoslang.evaluation import heldout_next_symbol_log_loss, shuffled_surrogate, surrogate_excess_compression
 from chaoslang.symbolization import kmeans_microstate_symbols, kmeans_microstates
 
+try:
+    from chaoslang.deeptime_backend import (
+        deeptime_kinetic_map,
+        deeptime_kmeans_microstate_symbols,
+        deeptime_implied_timescales,
+        deeptime_pcca_memberships,
+    )
+    DEEPTIME_AVAILABLE = True
+except ImportError:
+    DEEPTIME_AVAILABLE = False
+
 
 class AdaptiveSymbolizationTests(unittest.TestCase):
     def test_kmeans_microstates_choose_alphabet_size_directly(self):
@@ -101,6 +112,77 @@ class ValidationHarnessTests(unittest.TestCase):
         self.assertIn("delta_grammar_bits", result)
         self.assertIn("heldout_next_symbol_perplexity", result)
         self.assertEqual(result["embedding"]["dimension"], 2)
+
+
+@unittest.skipUnless(DEEPTIME_AVAILABLE, "deeptime not installed")
+class DeeptimeBackendTests(unittest.TestCase):
+    def test_deeptime_vamp_kinetic_map_on_lorenz63(self):
+        traj = lorenz63(steps=80, discard=10)
+        lifted = high_dimensional_lift(traj, dimension=50, noise=0.001, seed=0)
+        result = deeptime_kinetic_map(lifted, dimension=3, lag=2)
+        self.assertEqual(result.backend, "vamp")
+        self.assertEqual(len(result.coordinates), 80)
+        self.assertEqual(len(result.coordinates[0]), 3)
+        self.assertEqual(len(result.singular_values), 3)
+        self.assertEqual(len(result.timescales), 3)
+        self.assertGreater(len(result.cumulative_kinetic_variance), 0)
+        self.assertEqual(result.input_dimension, 50)
+
+    def test_deeptime_tica_reversible(self):
+        traj = lorenz63(steps=80, discard=10)
+        lifted = high_dimensional_lift(traj, dimension=30, noise=0.001, seed=0)
+        result = deeptime_kinetic_map(lifted, dimension=2, lag=2, reversible=True)
+        self.assertEqual(result.backend, "tica")
+        self.assertEqual(len(result.coordinates[0]), 2)
+
+    def test_deeptime_kmeans_symbols_feed_cla(self):
+        traj = lorenz63(steps=48, discard=8)
+        lifted = high_dimensional_lift(traj, dimension=20, noise=0.001, seed=0)
+        kinetic = deeptime_kinetic_map(lifted, dimension=2, lag=1)
+        symbols = deeptime_kmeans_microstate_symbols(kinetic.coordinates, k=5, seed=0)
+        model = CLA.simple(max_iterations=3, miner="suffix_trie").fit_symbols(symbols)
+        self.assertEqual(model.expand(), symbols)
+
+    def test_deeptime_d200_kinetic_map(self):
+        traj = lorenz63(steps=60, discard=10)
+        lifted = high_dimensional_lift(traj, dimension=200, noise=0.001, seed=0)
+        result = deeptime_kinetic_map(lifted, dimension=3, lag=2)
+        self.assertEqual(result.input_dimension, 200)
+        self.assertTrue(all(0.0 <= sv <= 1.0 + 1e-6 for sv in result.singular_values))
+
+    def test_deeptime_implied_timescales(self):
+        traj = lorenz63(steps=80, discard=10)
+        lifted = high_dimensional_lift(traj, dimension=20, noise=0.001, seed=0)
+        lags, ts = deeptime_implied_timescales(lifted, lags=[1, 2, 5], dimension=2)
+        self.assertEqual(len(lags), 3)
+        self.assertEqual(len(ts), 3)
+        self.assertTrue(all(len(row) == 2 for row in ts))
+
+    def test_deeptime_pcca_memberships(self):
+        traj = lorenz63(steps=80, discard=10)
+        lifted = high_dimensional_lift(traj, dimension=20, noise=0.001, seed=0)
+        kinetic = deeptime_kinetic_map(lifted, dimension=3, lag=2)
+        pcca_result = deeptime_pcca_memberships(kinetic.coordinates, n_microstates=6, n_macrostates=2, lag=2, seed=0)
+        self.assertGreater(len(pcca_result.assignments), 0)
+        self.assertEqual(len(pcca_result.assignments), len(kinetic.coordinates))
+
+    def test_cli_dt_tica_kmeans(self):
+        proc = subprocess.run(
+            [
+                sys.executable, "-m", "chaoslang.benchmarks.m1_controls",
+                "--system", "lorenz63", "--steps", "48", "--discard", "8",
+                "--lift-dimension", "20", "--lift-noise", "0.001",
+                "--symbolizer", "dt-tica-kmeans", "--microstates", "5", "--embedding-dim", "2",
+                "--lag", "1", "--iterations", "1", "--heldout",
+            ],
+            check=True, capture_output=True, text=True,
+        )
+        result = json.loads(proc.stdout)
+        self.assertEqual(result["symbolizer"], "dt-tica-kmeans")
+        self.assertEqual(result["dimension"], 20)
+        self.assertTrue(result["exact_reconstruction"])
+        self.assertEqual(result["embedding"]["backend"], "vamp")
+        self.assertIn("timescales", result["embedding"])
 
 
 if __name__ == "__main__":
