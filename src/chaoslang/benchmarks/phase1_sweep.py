@@ -13,7 +13,8 @@ from typing import Any, Iterable
 
 from chaoslang.benchmarks.attractors import high_dimensional_lift, lorenz63, m1_symbolize
 from chaoslang.benchmarks.phase1_lorenz63 import _evaluate, _trajectory_hash
-from chaoslang.deeptime_backend import deeptime_kmeans_microstate_symbols, deeptime_kinetic_map
+from chaoslang.deeptime_backend import (deeptime_kmeans_microstate_symbols,
+    deeptime_kinetic_map, validate_kinetic_diagnostics)
 from chaoslang.embedding import intrinsic_dimension_participation_ratio, tica_vamp_kinetic_map
 from chaoslang.symbolization import kmeans_microstate_symbols
 
@@ -27,6 +28,7 @@ RUN_FIELDS = (
     "heldout_log_loss_bits_per_symbol", "heldout_perplexity", "heldout_evaluated_symbols",
     "fit_wall_time_seconds", "configuration_wall_time_seconds", "singular_values",
     "timescales", "cumulative_kinetic_variance", "numerical_warnings",
+    "diagnostics_valid", "diagnostic_status",
 )
 
 
@@ -46,6 +48,7 @@ def _row(method: str, seed: int, embedding_dim: int | None, microstates: int | N
          evaluation: dict[str, Any], elapsed: float, singular_values: Iterable[float] = (),
          timescales: Iterable[float] = (), cumulative: Iterable[float] = (),
          numerical_warnings: Iterable[str] = ()) -> dict[str, Any]:
+    warning_list = list(dict.fromkeys(numerical_warnings))
     row = {field: None for field in RUN_FIELDS}
     row.update({
         "method": method, "seed": seed, "embedding_dim": embedding_dim,
@@ -56,7 +59,9 @@ def _row(method: str, seed: int, embedding_dim: int | None, microstates: int | N
         "configuration_wall_time_seconds": elapsed,
         "singular_values": list(singular_values), "timescales": list(timescales),
         "cumulative_kinetic_variance": list(cumulative),
-        "numerical_warnings": list(numerical_warnings),
+        "numerical_warnings": warning_list,
+        "diagnostics_valid": not warning_list,
+        "diagnostic_status": "valid" if not warning_list else "invalid_numerical_diagnostics",
     })
     for key in evaluation:
         if key in row:
@@ -121,7 +126,8 @@ def run_sweep(*, steps: int = 192, discard: int = 64, lift_dimension: int = 256,
                     rows.append(_row("deeptime_vamp_kmeans", seed, d, k, lag, "deeptime",
                         trajectory_hash, intrinsic, evaluation, time.perf_counter() - config_start,
                         kinetic.singular_values, kinetic.timescales,
-                        kinetic.cumulative_kinetic_variance, _warning_strings(caught, diagnostics)))
+                        kinetic.cumulative_kinetic_variance,
+                        (*_warning_strings(caught, diagnostics), *kinetic.numerical_warnings)))
         # Roughly alphabet-matched direct/raw baseline: no lift or kinetic embedding.
         config_start = time.perf_counter()
         direct = deeptime_kmeans_microstate_symbols(source, k=16, seed=seed, prefix="raw")
@@ -140,12 +146,13 @@ def run_sweep(*, steps: int = 192, discard: int = 64, lift_dimension: int = 256,
             warnings.simplefilter("always")
             pure = tica_vamp_kinetic_map(lifted, dimension=3, lag=1, shrinkage=1e-6)
             pure_symbols = kmeans_microstate_symbols(pure.coordinates, k=16, seed=seed)
+        _, _, pure_issues = validate_kinetic_diagnostics(pure.singular_values)
         rows.append(_row("pure_reference", seed, 3, 16, 1, "dependency_free",
             trajectory_hash, intrinsic, _evaluate(pure_symbols, iterations=iterations,
             surrogates=surrogates, seed=seed), time.perf_counter() - config_start,
-            pure.singular_values, (), (), _warning_strings(caught, pure.singular_values)))
+            pure.singular_values, (), (), (*_warning_strings(caught, pure.singular_values), *pure_issues)))
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "diagnostic_not_grammar_preservation_claim",
         "metric_labels": {
             "real_minus_shuffled_bits_proxy": "current_two_part_proxy_not_calibrated_cla_mdl",
@@ -163,7 +170,7 @@ def run_sweep(*, steps: int = 192, discard: int = 64, lift_dimension: int = 256,
 def _write_csv(path: Path, records: list[dict[str, Any]]) -> None:
     fields = list(records[0]) if records else []
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         for record in records:
             writer.writerow({key: json.dumps(value, sort_keys=True) if isinstance(value, (list, dict)) else value

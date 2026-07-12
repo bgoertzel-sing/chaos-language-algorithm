@@ -13,6 +13,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+import math
+import warnings
 
 import numpy as np
 
@@ -29,6 +31,38 @@ class DeeptimeKineticMapResult:
     input_dimension: int
     dimension: int
     backend: str
+    diagnostics_valid: bool
+    diagnostic_status: str
+    numerical_warnings: tuple[str, ...]
+
+
+def validate_kinetic_diagnostics(
+    singular_values: Sequence[float],
+    timescales: Sequence[float] = (),
+    *,
+    backend_warnings: Sequence[str] = (),
+    singular_value_tolerance: float = 1e-8,
+    near_unit_tolerance: float = 1e-8,
+    maximum_timescale: float = 1e6,
+) -> tuple[bool, str, tuple[str, ...]]:
+    """Fail closed on unusable kinetic diagnostics without changing raw values."""
+    issues = list(backend_warnings)
+    svs = tuple(float(v) for v in singular_values)
+    tss = tuple(float(v) for v in timescales)
+    if any(not math.isfinite(v) for v in svs):
+        issues.append("non_finite_singular_value")
+    if any(math.isfinite(v) and (v < -singular_value_tolerance or v > 1 + singular_value_tolerance) for v in svs):
+        issues.append("singular_value_outside_valid_range")
+    if any(math.isfinite(v) and abs(1 - v) <= near_unit_tolerance for v in svs):
+        issues.append("singular_value_near_one_timescale_undefined")
+    if any(not math.isfinite(v) for v in tss):
+        issues.append("non_finite_timescale")
+    if any(math.isfinite(v) and v <= 0 for v in tss):
+        issues.append("nonpositive_timescale")
+    if any(math.isfinite(v) and v > maximum_timescale for v in tss):
+        issues.append("implausibly_large_timescale")
+    unique = tuple(dict.fromkeys(issues))
+    return not unique, "valid" if not unique else "invalid_numerical_diagnostics", unique
 
 
 @dataclass(frozen=True)
@@ -98,10 +132,12 @@ def deeptime_kinetic_map(
         estimator = VAMP(dim=dimension, lagtime=lag)
         backend_name = "vamp"
 
-    model = estimator.fit(data).fetch_model()
-    coords = model.transform(data)
-    singular_values_raw = np.array(model.singular_values)
-    timescales_raw = np.array(model.timescales())
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        model = estimator.fit(data).fetch_model()
+        coords = model.transform(data)
+        singular_values_raw = np.array(model.singular_values)
+        timescales_raw = np.array(model.timescales())
 
     n_kept = min(dimension, len(singular_values_raw))
     singular_values = tuple(float(sv) for sv in singular_values_raw[:n_kept])
@@ -111,6 +147,10 @@ def deeptime_kinetic_map(
     ckv_tuple = tuple(float(v) for v in ckv[:n_kept]) if ckv is not None else ()
 
     coordinates = tuple(tuple(float(v) for v in row) for row in coords)
+    backend_warnings = tuple(f"{w.category.__name__}: {w.message}" for w in caught)
+    valid, status, diagnostic_warnings = validate_kinetic_diagnostics(
+        singular_values, timescales, backend_warnings=backend_warnings
+    )
 
     return DeeptimeKineticMapResult(
         coordinates=coordinates,
@@ -121,6 +161,9 @@ def deeptime_kinetic_map(
         input_dimension=input_dim,
         dimension=n_kept,
         backend=backend_name,
+        diagnostics_valid=valid,
+        diagnostic_status=status,
+        numerical_warnings=diagnostic_warnings,
     )
 
 
