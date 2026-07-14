@@ -36,7 +36,12 @@ from typing import Any
 
 from .attractors import logistic_map, lorenz96, high_dimensional_lift, equal_width_symbols
 from ..embedding import intrinsic_dimension_participation_ratio, tica_vamp_kinetic_map
-from ..symbolization import kmeans_microstate_symbols, kmeans_microstates
+from ..symbolization import (
+    FixedPartitionSymbolizer,
+    fixed_partition_symbols,
+    kmeans_microstate_symbols,
+    kmeans_microstates,
+)
 from ..evaluation import (
     cla_compression_gain_bits,
     empirical_code_length_bits,
@@ -107,6 +112,23 @@ def logistic_map_symbols(
     return equal_width_symbols(traj, bins=bins, prefix="L")
 
 
+def logistic_map_symbols_fixed(
+    r: float = 4.0,
+    x0: float = 0.123,
+    steps: int = 2000,
+    discard: int = 500,
+    bins: int = 8,
+    reference_r: float = 4.0,
+) -> tuple[str, ...]:
+    """Symbolize a logistic map using bounds frozen at ``reference_r``."""
+
+    trajectory = logistic_map(r=r, x0=x0, steps=steps, discard=discard)
+    reference = logistic_map(r=reference_r, x0=x0, steps=steps, discard=discard)
+    return fixed_partition_symbols(
+        trajectory, reference=reference, bins=bins, prefix="L"
+    )
+
+
 def lorenz96_symbols(
     F: float = 8.0,
     steps: int = 2000,
@@ -119,6 +141,31 @@ def lorenz96_symbols(
     traj = lorenz96(steps=steps, dt=0.01, initial=initial, F=F, discard=discard)
     first_coord = [p[0] for p in traj]
     return equal_width_symbols(first_coord, bins=bins, prefix="F")
+
+
+def lorenz96_symbols_fixed(
+    F: float = 8.0,
+    steps: int = 2000,
+    discard: int = 500,
+    dim: int = 5,
+    bins: int = 8,
+    reference_F: float = 8.0,
+) -> tuple[str, ...]:
+    """Symbolize Lorenz-96's first coordinate using reference-frozen bounds."""
+
+    initial = tuple(8.0 + 0.01 * i for i in range(dim))
+    trajectory = lorenz96(
+        steps=steps, dt=0.01, initial=initial, F=F, discard=discard
+    )
+    reference = lorenz96(
+        steps=steps, dt=0.01, initial=initial, F=reference_F, discard=discard
+    )
+    return fixed_partition_symbols(
+        [point[0] for point in trajectory],
+        reference=[point[0] for point in reference],
+        bins=bins,
+        prefix="F",
+    )
 
 
 def lorenz96_hd_symbols(
@@ -233,6 +280,60 @@ def sweep_logistic_map(
         points=tuple(points),
         config={"steps": steps, "discard": discard, "bins": bins,
                 "max_iterations": max_iterations, "surrogates": surrogates},
+    )
+
+
+def sweep_logistic_map_fixed(
+    r_values: Sequence[float] | None = None,
+    *,
+    steps: int = 2000,
+    discard: int = 500,
+    bins: int = 8,
+    reference_r: float = 4.0,
+    x0: float = 0.123,
+    max_iterations: int = 8,
+    surrogates: int = 5,
+    seed: int = 0,
+) -> SweepResult:
+    """Sweep logistic-map dynamics through one reference-frozen partition."""
+
+    if r_values is None:
+        r_values = (2.5, 3.0, 3.2, 3.4, 3.5, 3.56, 3.6, 3.7, 3.8, 3.9, 4.0)
+    reference = logistic_map(
+        r=reference_r, x0=x0, steps=steps, discard=discard
+    )
+    symbolizer = FixedPartitionSymbolizer.from_reference(
+        reference, bins=bins, prefix="L"
+    )
+
+    points = []
+    for r in r_values:
+        trajectory = logistic_map(r=r, x0=x0, steps=steps, discard=discard)
+        symbols = symbolizer.symbolize(trajectory)
+        point = analyze_symbols(
+            symbols, max_iterations=max_iterations, surrogates=surrogates, seed=seed
+        )
+        point = SweepPoint(parameter=r, **{
+            field_name: getattr(point, field_name)
+            for field_name in point.__dataclass_fields__
+            if field_name != "parameter"
+        })
+        points.append(point)
+
+    return SweepResult(
+        system="logistic_map_fixed",
+        parameter_name="r",
+        parameter_values=tuple(r_values),
+        points=tuple(points),
+        config={
+            "steps": steps,
+            "discard": discard,
+            "bins": bins,
+            "reference_r": reference_r,
+            "bounds": symbolizer.bounds,
+            "max_iterations": max_iterations,
+            "surrogates": surrogates,
+        },
     )
 
 
