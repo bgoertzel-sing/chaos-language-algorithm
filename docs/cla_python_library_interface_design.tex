@@ -1,0 +1,947 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\lstset{basicstyle=\ttfamily\small,columns=fullflexible,breaklines=true,
+  frame=single,showstringspaces=false,keepspaces=true}
+\newcommand{\Current}{\textbf{Current}}
+\newcommand{\Proposed}{\textbf{Proposed}}
+\newcommand{\Experimental}{\textbf{Experimental}}
+\newcommand{\Invariant}{\textbf{Invariant}}
+
+\title{A Python Software-Library Interface for the\\
+Chaos Language Algorithm\\
+Including Dynamics-Aware Trajectory Embedding}
+\author{CLA Project}
+\date{July 12, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document specifies a user-facing and extensible Python interface for the
+Chaos Language Algorithm (CLA) as both a symbolic grammar learner and an
+end-to-end trajectory-analysis pipeline. The pipeline converts a scalar or
+vector trajectory into a low-dimensional kinetic representation, partitions it
+into a bounded microstate alphabet, and induces an exact-reconstructing grammar
+using sequential chunks, substitutable categories, and minimum-description-
+length (MDL) search. The design preserves the dependency-free pure-Python
+implementation while defining optional NumPy, scikit-learn, deeptime, and
+Hyperon adapters. It explicitly distinguishes implemented behavior from proposed
+interfaces and from scientifically unvalidated diagnostics. The central API
+contract is that fitted symbolic models reconstruct their training symbol stream
+exactly; predictive quality, grammar survival, and dynamical interpretation are
+separate measured claims, never consequences of reconstruction alone.
+\end{abstract}
+
+\tableofcontents
+
+\section{Scope, status, and design goals}
+
+The current repository already implements a deterministic symbolic-string CLA,
+fixed-grid and k-means symbolizers, a small pure-Python non-reversible kinetic
+map, optional deeptime routines, JSON state persistence and edit replay, and
+Phase-0 evaluation diagnostics. These pieces are not yet integrated behind one
+fitted trajectory-pipeline object. This specification supplies that integration
+contract without pretending it already exists.
+
+Every interface below has one of three status labels.
+\begin{itemize}[nosep]
+\item \Current: present in the repository, though its exact signature may be
+  normalized by a compatibility wrapper.
+\item \Experimental: present, but numerically, statistically, or operationally
+  provisional.
+\item \Proposed: a normative target for future implementation.
+\end{itemize}
+
+The design goals are:
+\begin{enumerate}[nosep]
+\item one simple API for symbolic streams and one for raw trajectories;
+\item exact reconstruction of the fitted symbolic stream;
+\item explicit separation of chunks (sequences) and categories (alternatives);
+\item fitted preprocessing, embedding, and symbolization objects that can
+  transform new data without refitting or leaking holdout information;
+\item deterministic, seed-controlled operation where the selected backend
+  permits it;
+\item immutable, serializable domain records and replayable accepted edits;
+\item backend-neutral Protocols suitable for pure Python, deeptime, and Hyperon;
+\item honest evaluation: baseline diagnostics are labeled as baselines, not as
+  a validated CLA likelihood or proof of a strange attractor.
+\end{enumerate}
+
+\section{Conceptual pipeline and contracts}
+
+The end-to-end data path is
+\begin{verbatim}
+raw trajectory
+  -> validation and preprocessing fitted on training data
+  -> intrinsic-dimension diagnostics
+  -> lagged TICA/VAMP kinetic embedding
+  -> bounded-k k-means microstates
+  -> optional PCCA+ memberships used only as category seeds
+  -> symbolic stream
+  -> chunk and category proposals
+  -> MDL-scored grammar search
+  -> fitted model, edit trace, diagnostics, and exact expansion
+\end{verbatim}
+
+For high-dimensional data the default is non-reversible VAMP, not reversible
+TICA. The lagged covariance must not be silently symmetrized because directional
+symbolic structure may be scientifically relevant. PCCA+ macrostates are not the
+default base alphabet: microstates remain the observations given to CLA, while
+soft metastable memberships may seed category proposals.
+
+Let the training trajectory be $X=(x_0,\ldots,x_{n-1})$. With lag $\tau$, an
+embedding may produce only $n-\tau$ coordinates. The fitted artifact therefore
+carries an explicit index map from every coordinate and symbol back to a source
+time index. No API may imply one symbol per original sample when a transform has
+trimmed endpoints.
+
+\paragraph{Exactness boundary.}
+If $S_0$ is the symbolic stream supplied to grammar induction and $(G,P)$ is the
+fitted grammar and parse, then
+\[
+  \operatorname{expand}(P,G)=S_0.
+\]
+This does not reconstruct the floating-point trajectory. A lossy embedding and
+partition remain lossy. A proposed quantized trajectory decoder, if added, must
+be named separately and report its distortion.
+
+\section{Package and dependency boundaries}
+
+\subsection{Proposed public layout}
+
+\begin{verbatim}
+chaoslang/
+  __init__.py              # stable exports: CLA, CLAPipeline, configs
+  api.py                   # compatibility symbolic facade
+  pipeline.py              # end-to-end estimator facade
+  model.py                 # fitted model and result bundles
+  config.py                # frozen versioned configuration records
+  core/                    # dependency-free immutable domain objects
+  preprocessing/           # validation, scaling, missing-data policies
+  diagnostics/             # intrinsic dimension and data-quality checks
+  embedding/               # Protocols and pure-Python kinetic map
+  symbolization/           # fitted partition Protocols and pure k-means
+  mining/                  # chunk-miner Protocol and implementations
+  categorization/          # category-inducer Protocol and implementations
+  scoring/                 # code lengths, Scorer Protocol, MDL
+  search/                  # proposal scheduling and acceptance
+  evaluation/              # surrogates, prediction, sweeps
+  persistence/             # versioned artifact schema and replay
+  stores/                  # Fact and FactStore seam
+  backends/deeptime/       # optional VAMP/TICA/PCCA+ implementation
+  backends/hyperon/        # optional fact/search adapters
+  benchmarks/              # controls, not core API
+\end{verbatim}
+
+For migration, existing single-file modules such as
+\texttt{chaoslang.embedding} and \texttt{chaoslang.symbolization} may continue to
+re-export implementations. Core must not import NumPy, sklearn, deeptime, or
+Hyperon. Optional dependencies are loaded only after an explicitly selected
+backend requires them. Importing \texttt{chaoslang} must remain lightweight.
+
+\subsection{Backend capability discovery}
+
+\Proposed:
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class BackendInfo:
+    name: str
+    version: str | None
+    capabilities: frozenset[str]
+    deterministic_notes: tuple[str, ...] = ()
+
+def available_backends() -> tuple[BackendInfo, ...]: ...
+\end{lstlisting}
+
+Selection uses registered names or supplied objects. The value
+\texttt{"auto"} may choose a backend only if the resolved backend is recorded in
+the fitted provenance. Missing optional software raises
+\texttt{BackendUnavailableError} with an installation extra; it must not silently
+change algorithms.
+
+\section{Typed public data model}
+
+The public model should use frozen dataclasses and explicit IDs. Existing
+\texttt{Token}, \texttt{CategoryOccurrence}, \texttt{Production},
+\texttt{Category}, \texttt{Corpus}, \texttt{Grammar}, \texttt{Score},
+\texttt{Edit}, and \texttt{GrammarState} remain valid compatibility forms.
+The normalized target is:
+
+\begin{lstlisting}[language=Python]
+from dataclasses import dataclass, field
+from typing import Literal, Mapping, NewType, Sequence, TypeAlias
+
+TokenId = NewType("TokenId", str)
+RuleId = NewType("RuleId", str)
+CategoryId = NewType("CategoryId", str)
+RunId = NewType("RunId", str)
+Point: TypeAlias = tuple[float, ...]
+Symbol: TypeAlias = str
+
+@dataclass(frozen=True)
+class Token:
+    id: TokenId
+    kind: Literal["base", "chunk"]
+    label: str
+
+@dataclass(frozen=True)
+class CategoryOccurrence:
+    category_id: CategoryId
+    member_id: TokenId
+
+ParseEntry: TypeAlias = TokenId | CategoryOccurrence
+
+@dataclass(frozen=True)
+class Production:
+    id: RuleId
+    lhs: TokenId
+    rhs: tuple[ParseEntry, ...]
+
+@dataclass(frozen=True)
+class Category:
+    id: CategoryId
+    members: frozenset[TokenId]
+    weights: Mapping[TokenId, float] = field(default_factory=dict)
+
+@dataclass(frozen=True)
+class SymbolStream:
+    symbols: tuple[Symbol, ...]
+    source_indices: tuple[int, ...]
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+@dataclass(frozen=True)
+class Score:
+    model_bits: float
+    data_bits: float
+    diagnostics: Mapping[str, float] = field(default_factory=dict)
+    @property
+    def total_bits(self) -> float: ...
+
+@dataclass(frozen=True)
+class GrammarState:
+    original: SymbolStream
+    parse: tuple[ParseEntry, ...]
+    grammar: Grammar
+    score: Score
+    edit_log: tuple[Edit, ...] = ()
+\end{lstlisting}
+
+A category is not encoded as a production whose right side lists members. Each
+category occurrence stores its observed member so expansion is unambiguous.
+IDs, not labels, establish identity. Mapping fields are exposed as read-only
+views or persistent maps; freezing a dataclass alone does not make a contained
+\texttt{dict} immutable.
+
+\subsection{Trajectory and fitted-stage records}
+
+\Proposed:
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class Trajectory:
+    values: Sequence[Sequence[float] | float]
+    times: Sequence[float] | None = None
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+@dataclass(frozen=True)
+class IntrinsicDimensionReport:
+    participation_ratio: float
+    covariance_eigenvalues: tuple[float, ...]
+    variance_dimension: int
+    variance_fraction: float
+    warnings: tuple[str, ...] = ()
+
+@dataclass(frozen=True)
+class EmbeddingResult:
+    coordinates: tuple[Point, ...]
+    source_indices: tuple[int, ...]
+    singular_values: tuple[float, ...]
+    timescales: tuple[float, ...] = ()
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+@dataclass(frozen=True)
+class PartitionResult:
+    stream: SymbolStream
+    centers: tuple[Point, ...]
+    inertia: float | None
+    soft_memberships: tuple[tuple[float, ...], ...] = ()
+
+@dataclass(frozen=True)
+class FitTrace:
+    scores: tuple[Score, ...]
+    candidates_evaluated: tuple[int, ...]
+    accepted_edits: tuple[Edit, ...]
+    stop_reason: str
+\end{lstlisting}
+
+\section{Extension Protocols}
+
+The following Protocols are the stable replaceable seams. Implementations may
+use classes, functions wrapped as adapters, local stores, or remote services,
+but results must be materialized into the public immutable records.
+
+\begin{lstlisting}[language=Python]
+from typing import Iterable, Protocol, Self
+
+class Preprocessor(Protocol):
+    def fit(self, x: Trajectory) -> Self: ...
+    def transform(self, x: Trajectory) -> Trajectory: ...
+    def fit_transform(self, x: Trajectory) -> Trajectory: ...
+
+class DimensionDiagnostic(Protocol):
+    def analyze(self, x: Trajectory) -> IntrinsicDimensionReport: ...
+
+class TrajectoryEmbedder(Protocol):
+    def fit(self, x: Trajectory) -> Self: ...
+    def transform(self, x: Trajectory) -> EmbeddingResult: ...
+    def fit_transform(self, x: Trajectory) -> EmbeddingResult: ...
+
+class Symbolizer(Protocol):
+    def fit(self, x: EmbeddingResult) -> Self: ...
+    def transform(self, x: EmbeddingResult) -> PartitionResult: ...
+    def fit_transform(self, x: EmbeddingResult) -> PartitionResult: ...
+
+class PatternMiner(Protocol):
+    def proposals(self, state: GrammarState) -> Iterable[Proposal]: ...
+
+class CategoryInducer(Protocol):
+    def proposals(self, state: GrammarState,
+                  seeds: CategorySeeds | None = None
+                  ) -> Iterable[Proposal]: ...
+
+class Scorer(Protocol):
+    def score(self, state: GrammarState) -> Score: ...
+    def delta(self, state: GrammarState, proposal: Proposal) -> float: ...
+
+class SearchStrategy(Protocol):
+    def fit(self, initial: GrammarState, *, rng: RandomSource
+            ) -> tuple[GrammarState, FitTrace]: ...
+
+class Predictor(Protocol):
+    def predict_proba(self, context: Sequence[Symbol]
+                      ) -> Mapping[Symbol, float]: ...
+
+class FactStore(Protocol):
+    def add(self, fact: Fact) -> None: ...
+    def query(self, predicate: str | None = None) -> Iterable[Fact]: ...
+\end{lstlisting}
+
+A miner or inducer returns proposals and never mutates state. Only an edit
+applier/search strategy commits edits. The current repository implements a
+minimal \texttt{FactStore}, n-gram and bounded suffix-trie miners, exact-context
+and Jensen--Shannon category inducers, and a greedy scorer loop; the richer
+Protocol signatures above are proposed normalization.
+
+\section{Configuration and deterministic randomness}
+
+Configurations are frozen, JSON-serializable, versioned, and nested. Unknown
+fields are errors by default. No mutable estimator object is embedded in a
+portable configuration; plugin objects are supplied separately and their
+qualified names and versions enter provenance.
+
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class EmbeddingConfig:
+    method: Literal["identity", "vamp", "tica"] = "vamp"
+    backend: Literal["pure", "deeptime", "auto"] = "pure"
+    dimension: int = 5
+    lag: int = 1
+    shrinkage: float = 1e-6
+    reversible: bool = False
+
+@dataclass(frozen=True)
+class SymbolizationConfig:
+    method: Literal["kmeans", "fixed_grid"] = "kmeans"
+    microstates: int = 32
+    prefix: str = "km"
+    max_iterations: int = 50
+    pcca_macrostates: int | None = None
+
+@dataclass(frozen=True)
+class GrammarConfig:
+    max_iterations: int = 8
+    miner: Literal["suffix_trie", "ngram"] = "suffix_trie"
+    n_min: int = 2
+    n_max: int = 5
+    min_uses: int = 2
+    categories: Literal["off", "exact", "js"] = "js"
+    js_threshold: float = 0.1
+
+@dataclass(frozen=True)
+class EvaluationConfig:
+    surrogate_runs: int = 8
+    heldout_fraction: float = 0.3
+    predictor_order: int = 1
+    smoothing_alpha: float = 0.5
+
+@dataclass(frozen=True)
+class CLAConfig:
+    schema_version: str = "1.0"
+    seed: int = 0
+    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
+    symbolization: SymbolizationConfig = field(
+        default_factory=SymbolizationConfig)
+    grammar: GrammarConfig = field(default_factory=GrammarConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+\end{lstlisting}
+
+\texttt{reversible=True} is valid only with method \texttt{"tica"}; method
+\texttt{"vamp"} is non-reversible. The implementation rejects contradictory
+settings rather than guessing.
+
+One root seed is expanded deterministically into named child seeds, for example
+\texttt{preprocess}, \texttt{embedding}, \texttt{kmeans}, \texttt{search}, and
+\texttt{surrogate/i}. Child generation must use a documented stable hash rather
+than Python's process-randomized \texttt{hash()}. Provenance records every child
+seed. A backend that cannot guarantee bitwise determinism records that fact and
+must not claim it.
+
+\section{Simple API}
+
+\subsection{Symbolic streams}
+
+The existing entry point remains supported:
+\begin{lstlisting}[language=Python]
+from chaoslang import CLA
+
+model = CLA.simple(max_iterations=8, seed=0).fit_symbols(
+    "abcabcabc"
+)
+assert model.expand() == tuple("abcabcabc")
+\end{lstlisting}
+
+\Current: \texttt{CLA.simple(...).fit\_symbols(...)} and
+\texttt{CLAModel.expand()}. \Proposed additions:
+\begin{lstlisting}[language=Python]
+class CLA:
+    @classmethod
+    def simple(cls, *, seed: int = 0, **kwargs: object) -> "CLA": ...
+    def fit(self, symbols: Sequence[str]) -> "SymbolicCLAModel": ...
+    def fit_symbols(self, symbols: str | Iterable[str | Token]
+                    ) -> "SymbolicCLAModel": ... # compatibility
+    def evaluate(self, symbols: Sequence[str], **kwargs: object
+                 ) -> EvaluationReport: ...
+
+class SymbolicCLAModel:
+    grammar_: Grammar
+    state_: GrammarState
+    trace_: FitTrace
+    def transform(self, symbols: Sequence[str]) -> EncodedParse: ...
+    def inverse_transform(self, parse: EncodedParse) -> tuple[str, ...]: ...
+    def expand(self) -> tuple[str, ...]: ...
+    def predict(self, contexts: Sequence[Sequence[str]]) -> tuple[str, ...]: ...
+    def predict_proba(self, contexts: Sequence[Sequence[str]]
+                      ) -> tuple[Mapping[str, float], ...]: ...
+\end{lstlisting}
+
+\texttt{transform} parses new symbols using the frozen grammar and does not
+learn new rules. Unknown-symbol behavior is configured as \texttt{"error"},
+\texttt{"literal"}, or a predeclared unknown token. \texttt{inverse\_transform}
+expands any valid encoded parse. Prediction is unavailable until a predictor is
+fitted; it raises \texttt{NotFittedCapabilityError}, never fabricates a grammar
+likelihood.
+
+\subsection{Raw trajectories}
+
+\Proposed:
+\begin{lstlisting}[language=Python]
+from chaoslang import CLAPipeline, CLAConfig
+
+pipe = CLAPipeline.simple(seed=7, embedding_dim=5,
+                          lag=2, microstates=32)
+model = pipe.fit(trajectory)
+symbols = model.transform(another_trajectory)
+report = model.evaluate(another_trajectory)
+assert model.symbolic_model_.expand() == model.training_symbols_.symbols
+\end{lstlisting}
+
+The convenience estimator has familiar methods:
+\begin{lstlisting}[language=Python]
+class CLAPipeline:
+    def __init__(self, config: CLAConfig, *,
+                 preprocessor: Preprocessor | None = None,
+                 diagnostic: DimensionDiagnostic | None = None,
+                 embedder: TrajectoryEmbedder | None = None,
+                 symbolizer: Symbolizer | None = None,
+                 miner: PatternMiner | None = None,
+                 category_inducer: CategoryInducer | None = None,
+                 scorer: Scorer | None = None,
+                 search: SearchStrategy | None = None) -> None: ...
+
+    @classmethod
+    def simple(cls, *, seed: int = 0, embedding_dim: int = 5,
+               lag: int = 1, microstates: int = 32,
+               backend: str = "pure") -> "CLAPipeline": ...
+
+    def fit(self, x: TrajectoryLike, y: None = None) -> "CLAPipelineModel": ...
+    def transform(self, x: TrajectoryLike) -> SymbolStream: ...
+    def fit_transform(self, x: TrajectoryLike, y: None = None
+                      ) -> SymbolStream: ...
+    def evaluate(self, x: TrajectoryLike | None = None,
+                 *, plan: EvaluationPlan | None = None
+                 ) -> EvaluationReport: ...
+\end{lstlisting}
+
+\texttt{fit\_transform} returns the fitted training symbol stream, not the
+compressed parse. The compressed representation is
+\texttt{model.symbolic\_model\_.state\_.parse}. This naming prevents an
+ambiguous interpretation of ``transform.'' The fitted pipeline model exposes:
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class CLAPipelineModel:
+    config_: CLAConfig
+    preprocessor_: Preprocessor
+    diagnostic_: IntrinsicDimensionReport
+    embedder_: TrajectoryEmbedder
+    symbolizer_: Symbolizer
+    training_embedding_: EmbeddingResult
+    training_partition_: PartitionResult
+    symbolic_model_: SymbolicCLAModel
+    provenance_: Provenance
+
+    @property
+    def training_symbols_(self) -> SymbolStream: ...
+    def transform(self, x: TrajectoryLike) -> SymbolStream: ...
+    def encode(self, x: TrajectoryLike) -> EncodedParse: ...
+    def predict(self, x: TrajectoryLike) -> tuple[str, ...]: ...
+    def predict_proba(self, x: TrajectoryLike
+                      ) -> tuple[Mapping[str, float], ...]: ...
+    def evaluate(self, x: TrajectoryLike | None = None,
+                 *, plan: EvaluationPlan | None = None
+                 ) -> EvaluationReport: ...
+    def save(self, path: str | Path) -> None: ...
+\end{lstlisting}
+
+\section{Advanced end-to-end example}
+
+\begin{lstlisting}[language=Python]
+from chaoslang import CLAPipeline
+from chaoslang.config import (
+    CLAConfig, EmbeddingConfig, SymbolizationConfig,
+    GrammarConfig, EvaluationConfig,
+)
+
+config = CLAConfig(
+    seed=19,
+    embedding=EmbeddingConfig(
+        method="vamp", backend="deeptime",
+        dimension=6, lag=4, reversible=False,
+    ),
+    symbolization=SymbolizationConfig(
+        method="kmeans", microstates=48,
+        pcca_macrostates=4, # category seeds, not base symbols
+    ),
+    grammar=GrammarConfig(
+        miner="suffix_trie", n_min=2, n_max=10,
+        min_uses=2, categories="js", js_threshold=0.08,
+    ),
+    evaluation=EvaluationConfig(
+        surrogate_runs=20, heldout_fraction=0.3,
+        predictor_order=2,
+    ),
+)
+
+pipeline = CLAPipeline(config)
+model = pipeline.fit(train_trajectory)
+
+# Frozen fitted stages transform the test continuation; no refitting.
+test_symbols = model.transform(test_trajectory)
+encoded = model.encode(test_trajectory)
+assert model.symbolic_model_.inverse_transform(encoded) == test_symbols.symbols
+
+report = model.evaluate(test_trajectory)
+print(report.surrogate.delta_grammar_bits)
+print(report.heldout.log_loss_bits_per_symbol)
+print(report.heldout.perplexity)
+model.save("lorenz_cla.cla")
+\end{lstlisting}
+
+Train/test splitting must occur in trajectory time before fitting scaling,
+embedding, clustering, grammar, or predictor. For a single continuous trace,
+lagged windows crossing the split are either excluded or explicitly marked as
+warm-up context. Random pointwise splitting is invalid for temporal evaluation.
+
+\section{Fitting semantics by stage}
+
+\subsection{Preprocessing}
+
+The default validates finite rectangular data and optionally centers/scales using
+training statistics. Missing values are rejected unless an explicit imputer is
+configured. Irregular sample times are either rejected by lag-in-steps methods
+or resampled by an explicit preprocessor. Input arrays are not mutated.
+
+\subsection{Intrinsic dimension}
+
+\Current/\Experimental: covariance spectral participation ratio and a
+variance-fraction suggested dimension. This is a cheap diagnostic, not a
+correlation dimension and not proof of an attractor dimension. The report is
+advisory unless \texttt{dimension="auto"} is explicitly selected. Automatic
+selection records the rule and any clipping bounds.
+
+\subsection{Kinetic embedding}
+
+\Current/\Experimental pure path: shrinkage-regularized $C_{00}$,
+$C_{0\tau}$, and $C_{\tau\tau}$; non-symmetrized lagged covariance; singular
+values clipped to $[0,1]$; small Jacobi eigensolver. It is suitable for tests and
+small controls, not production dimensions near 200--300.
+
+\Current optional path: deeptime VAMP or TICA, singular values, timescales, and
+cumulative kinetic variance. The fitted API must preserve and serialize the
+actual projection model needed by \texttt{transform}; returning coordinates
+alone is insufficient. Lag selection by implied-timescale plateau or
+cross-validated VAMP-2 is \Proposed.
+
+\subsection{Microstates and PCCA+}
+
+\Current: deterministic farthest-first pure-Python k-means and optional sklearn
+k-means wrappers. The normalized fitted symbolizer stores centers and assigns
+new points to nearest centers. It never refits on transform. Labels are stable
+IDs based on fitted center order.
+
+\Current/\Experimental optional PCCA+ helper yields microstate assignments and
+soft memberships, but its broad exception fallback and lack of a fitted public
+object are not sufficient for a stable API. The proposed API surfaces failures
+as diagnostics or typed exceptions. PCCA+ memberships become
+\texttt{CategorySeeds}; they do not replace microstate symbols by default.
+
+\subsection{Grammar induction}
+
+\Current: bounded n-gram or suffix-trie chunk proposals; exact-context or
+Jensen--Shannon category proposals; approximate two-part MDL; deterministic
+greedy selection with lexical tie breaking; dead-rule pruning; explicit
+\texttt{M[v]} category occurrences; exact reconstruction assertions.
+
+\Proposed search trace records the initial score and every accepted score,
+proposal provenance, exact delta, estimated delta, tie-break key, stopping reason,
+and runtime counters. Joint chunk/category moves, McBride-derivative pre-ranking,
+beam search, and calibrated real-bit coding are future strategies behind the
+same Protocols.
+
+\section{Prediction and evaluation}
+
+Evaluation results identify the data split, fitted artifact, metric algorithm,
+number of evaluated symbols, seed schedule, and uncertainty samples.
+
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class SurrogateReport:
+    real_gain_bits: float
+    surrogate_gain_bits: tuple[float, ...]
+    surrogate_mean_bits: float
+    delta_grammar_bits: float
+
+@dataclass(frozen=True)
+class PredictiveReport:
+    log_loss_bits_per_symbol: float
+    perplexity: float
+    evaluated_symbols: int
+    vocabulary_size: int
+    predictor: str
+
+@dataclass(frozen=True)
+class RateDistortionPoint:
+    embedding_dimension: int
+    microstates: int
+    distortion: float | None
+    delta_grammar_bits: float
+    heldout_log_loss_bits: float
+
+@dataclass(frozen=True)
+class EvaluationReport:
+    surrogate: SurrogateReport | None
+    heldout: PredictiveReport | None
+    rate_distortion: tuple[RateDistortionPoint, ...]
+    implied_timescales: ImpliedTimescaleReport | None
+    warnings: tuple[str, ...]
+    provenance: Provenance
+\end{lstlisting}
+
+\paragraph{Surrogate excess compression.}
+\Current/\Experimental: shuffle symbols while preserving marginal counts, fit
+CLA to each surrogate, and subtract mean surrogate gain from real-stream gain.
+The current no-grammar baseline is empirical iid code length and the grammar
+cost is the current approximate scorer. Therefore values are Phase-0 comparative
+diagnostics, not calibrated evidence in final real bits. Surrogate algorithms
+must be named; future block, phase-randomized, and dynamical surrogates belong
+behind a \texttt{SurrogateGenerator} Protocol.
+
+\paragraph{Held-out loss and perplexity.}
+\Current/\Experimental: additive-smoothed n-gram next-symbol predictor. It is
+not a CLA grammar likelihood. Reports must say \texttt{predictor="ngram"}. A
+future CLA predictor may traverse grammar-derived contexts and must normalize
+probabilities over the declared vocabulary. Perplexity is $2^{\ell}$ for loss
+$\ell$ in bits per symbol.
+
+\paragraph{Rate--distortion.}
+\Proposed: refit complete pipelines over embedding dimension $d$ and microstate
+count $k$, reporting predictive loss, surrogate excess compression, and an
+explicit distortion measure. Every grid point has an independent run record;
+shared preprocessing is allowed only when it cannot leak validation data.
+
+\paragraph{Implied timescales.}
+\Current optional helper computes timescales across lags. Plateau selection and
+confidence intervals are proposed. Timescales can diagnose lag choice but do not
+by themselves validate CLA grammar.
+
+\section{Persistence, replay, and provenance}
+
+\Current persistence round-trips \texttt{GrammarState} as deterministic JSON,
+renders stable text, and replays the current edit log for covered edits.
+\Proposed artifact persistence extends this to all fitted stages.
+
+A saved \texttt{.cla} artifact is a directory or ZIP with:
+\begin{verbatim}
+manifest.json             schema, hashes, package/backend versions
+config.json               resolved immutable configuration
+provenance.json           run ID, seeds, platform, warnings
+preprocessor.json         fitted statistics
+embedder/                 portable parameters or backend payload
+symbolizer.json           centers, labels, optional memberships
+grammar-state.json        corpus identity, parse, grammar, scores, edits
+fit-trace.json             all accepted transitions and stop reason
+evaluation/*.json         reports with data-split identities
+\end{verbatim}
+
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class Provenance:
+    run_id: RunId
+    created_utc: str
+    chaoslang_version: str
+    artifact_schema_version: str
+    config_sha256: str
+    input_sha256: str | None
+    backend_versions: Mapping[str, str]
+    root_seed: int
+    child_seeds: Mapping[str, int]
+    platform: Mapping[str, str]
+    warnings: tuple[str, ...] = ()
+
+class CLAPipelineModel:
+    def save(self, path: str | Path, *, include_training_data: bool = False
+             ) -> None: ...
+    @classmethod
+    def load(cls, path: str | Path, *, verify_hashes: bool = True,
+             allow_unsafe_backend_payload: bool = False
+             ) -> "CLAPipelineModel": ...
+\end{lstlisting}
+
+JSON and numeric arrays are preferred over pickle. Unsafe backend payloads are
+disabled by default. Loading validates schema version, hashes, dimensions,
+finite values, grammar references, category membership, edit sequence, and exact
+symbolic reconstruction when the original symbols are included. Replay applies
+serialized typed edits at recorded state hashes; it does not search for a
+similar block and silently skip unmatched edits. The current best-effort replay
+behavior remains a legacy reader only.
+
+Training data are excluded by default for size and privacy. If excluded, the
+artifact stores a content hash, shape, source-index range, and metadata sufficient
+to identify the data externally. Migration functions are explicit and never
+rewrite the source artifact in place.
+
+\section{Errors, validation, and invariants}
+
+\Proposed public exception hierarchy:
+\begin{verbatim}
+CLAError
+  ConfigurationError
+  InvalidTrajectoryError
+  InsufficientDataError
+  NotFittedError
+  NotFittedCapabilityError
+  BackendUnavailableError
+  BackendComputationError
+  UnknownSymbolError
+  InvariantViolation
+  ArtifactError
+    ArtifactIntegrityError
+    UnsupportedSchemaError
+    ReplayMismatchError
+\end{verbatim}
+
+Required checks include:
+\begin{enumerate}[nosep]
+\item trajectory points have one positive, constant dimension and finite values;
+\item sample count exceeds lag and any estimator-specific minimum;
+\item $1\leq d\leq D$ where applicable and $1\leq k\leq n_{embedded}$;
+\item source indices are strictly increasing and align with coordinates/symbols;
+\item category member sets contain at least two distinct known token IDs;
+\item production and parse references resolve; chunk productions are acyclic;
+\item proposed occurrence ranges are valid and non-overlapping;
+\item accepted edits do not increase MDL under a strict greedy policy;
+\item after every accepted edit and after load/replay, expansion equals the
+  original symbolic stream;
+\item fitted \texttt{transform} never updates means, projections, centers,
+  grammar, or random state;
+\item probability predictions are finite, non-negative, and sum to one within
+  tolerance.
+\end{enumerate}
+
+Assertions may aid development but public input and artifact validation must use
+typed exceptions because Python can disable assertions.
+
+\section{Hyperon and fact-layer seam}
+
+\Current: a minimal backend-neutral \texttt{Fact} and \texttt{FactStore}, plus
+memory storage and state/fact tests. \Proposed: a lossless versioned projection
+from domain objects and proposals into facts.
+
+\begin{lstlisting}[language=Python]
+@dataclass(frozen=True)
+class Fact:
+    predicate: str
+    args: tuple[object, ...]
+    truth: float = 1.0
+    attrs: Mapping[str, object] = field(default_factory=dict)
+
+class StateProjector(Protocol):
+    def to_facts(self, state: GrammarState) -> Iterable[Fact]: ...
+    def from_facts(self, facts: Iterable[Fact]) -> GrammarState: ...
+\end{lstlisting}
+
+Hyperon miners and category inducers query a fact store and return ordinary
+\texttt{Proposal} records. They cannot mutate the authoritative grammar state.
+An ordinary edit applier revalidates all references, computes exact score, and
+checks reconstruction before commit. Hyperon truth values and provenance may
+rank proposals but do not bypass MDL acceptance. This keeps the scientific
+result portable and testable without a Hyperon runtime.
+
+\section{Backward compatibility and migration}
+
+The compatibility policy for the next major implementation stage is:
+\begin{enumerate}[nosep]
+\item retain \texttt{from chaoslang import CLA};
+\item retain \texttt{CLA.simple(...).fit\_symbols(...)};
+\item retain \texttt{CLAModel.state}, \texttt{score}, \texttt{grammar},
+  \texttt{parse}, \texttt{expand\_tokens()}, and \texttt{expand()};
+\item re-export current functions from their old module paths;
+\item introduce \texttt{CLAPipeline} rather than changing \texttt{CLA.fit} to
+  guess whether nested sequences are tokens or trajectory vectors;
+\item add deprecation warnings for constructor strings only after equivalent
+  config objects and migration documentation are released;
+\item load existing grammar-state JSON through a legacy schema reader.
+\end{enumerate}
+
+There are current inconsistencies to normalize carefully: compatibility modules
+and package modules expose overlapping miner/scorer/store names; the current
+\texttt{CLAModel} does not retain seed/config; pure kinetic mapping returns only
+coordinates and summary statistics rather than a reusable fitted transform;
+optional deeptime routines are functions rather than estimators; and current
+replay may search or skip when recorded edits do not match. None should be
+silently presented as satisfying the proposed fitted-pipeline contract.
+
+\section{Implementation roadmap}
+
+\subsection*{Stage 1: unify stable symbolic API}
+\begin{itemize}[nosep]
+\item Freeze and export Protocols, configs, exception types, and versioned IDs.
+\item Add fit trace and store resolved seed/config on symbolic models.
+\item Preserve all current imports and exact-reconstruction tests.
+\item Replace assertion-only public validation with typed exceptions.
+\end{itemize}
+
+\subsection*{Stage 2: fitted trajectory stages}
+\begin{itemize}[nosep]
+\item Implement fitted preprocessor, pure kinetic-map estimator, and fitted
+  k-means symbolizer with source-index alignment.
+\item Build \texttt{CLAPipeline} and \texttt{CLAPipelineModel}.
+\item Add train/holdout leakage tests and transform-without-refit tests.
+\end{itemize}
+
+\subsection*{Stage 3: robust optional backend}
+\begin{itemize}[nosep]
+\item Wrap deeptime VAMP/TICA as fitted embedders with serializable parameters.
+\item Convert PCCA+ output into explicit category seeds and remove broad silent
+  exception handling.
+\item Add implied-timescale and VAMP-2 lag/dimension diagnostics.
+\end{itemize}
+
+\subsection*{Stage 4: artifact and evaluation contract}
+\begin{itemize}[nosep]
+\item Implement portable artifact manifest, hashes, migration, strict replay,
+  and provenance capture.
+\item Separate n-gram baseline prediction from a future CLA predictor.
+\item Add reproducible $d,k$ rate--distortion sweeps and multi-seed intervals.
+\end{itemize}
+
+\subsection*{Stage 5: algorithmic extensions}
+\begin{itemize}[nosep]
+\item Calibrate all description lengths to real bits.
+\item Add McBride-derivative pre-ranking, joint chunk/category moves, and beam
+  search behind existing Protocols.
+\item Add Hyperon adapters only after lossless fact projection and parity tests.
+\item Consider probabilistic symbols and learned embeddings only as separate,
+  versioned CLA variants.
+\end{itemize}
+
+\section{Testing and scientific acceptance}
+
+Unit and property tests should cover type validation, deterministic named seeds,
+chunk/category identity, acyclic expansion, replay, source-index alignment,
+fitted-stage immutability, and optional-backend parity on small controls.
+Integration tests should run
+\begin{verbatim}
+trajectory -> VAMP/TICA -> k-means -> CLA -> expansion -> persistence -> load
+\end{verbatim}
+and require the same symbols, grammar, parse, scores (within documented numeric
+tolerance), and provenance identities after loading.
+
+Scientific acceptance is stronger than software acceptance. The initial battery
+should include periodic and non-chaotic controls, shuffled and structure-aware
+surrogates, Lorenz-63 and Roessler, and high-dimensional noisy lifts. It should
+report multiple seeds, uncertainty, raw fixed-grid failure, adaptive-partition
+results, held-out baselines, and grammar rate--distortion curves. A passing unit
+test establishes software behavior only. Positive surrogate excess compression
+under the current approximate scorer is suggestive, not conclusive. Exact
+reconstruction is a necessary representation invariant, not evidence that a
+learned grammar is causal, unique, predictive, or scientifically meaningful.
+
+\section{Current evidence and unresolved choices}
+
+This specification was grounded in the repository's public API, immutable core
+records, edit applier/search loop, n-gram and suffix-trie miners, exact and
+Jensen--Shannon category induction, symbolization, pure and deeptime embedding
+modules, evaluation harness, persistence/replay code, README, project decisions,
+high-dimensional embedding design, and tests. At inspection time the branch was
+\texttt{agent/hd-embedding-cla} at commit \texttt{16fe6bc}; the full unittest
+suite was also invoked as a validation gate for this design work.
+
+The principal unresolved design choices are:
+\begin{enumerate}[nosep]
+\item the portable serialization form for fitted deeptime projections;
+\item the definitive real-bit CLA code and predictive distribution;
+\item treatment of multiple independent trajectories versus one concatenated
+  stream (boundaries must never create artificial chunks);
+\item online/streaming covariance, partition updates, and grammar updates;
+\item lag/dimension model selection and confidence-interval methodology;
+\item whether category weights remain proposal metadata or become part of a
+  probabilistic grammar variant;
+\item exact semantics for parsing unseen streams when several rewrites overlap.
+\end{enumerate}
+
+These ambiguities should be resolved through versioned interfaces and tests,
+not hidden behind convenience defaults.
+
+\section{Summary}
+
+The recommended library has two explicit front doors: \texttt{CLA} for existing
+symbolic streams and \texttt{CLAPipeline} for trajectories. The latter owns the
+entire fitted path from validation and dynamics-aware embedding through bounded
+microstates and grammar induction. Every stage has a typed replaceable Protocol,
+every stochastic action derives from a recorded root seed, every accepted edit
+is replayable, and every fitted grammar reconstructs its training symbol stream.
+Optional deeptime and Hyperon components remain adapters. Most importantly, the
+API separates representation exactness from predictive and scientific claims,
+so future CLA research can improve algorithms without weakening the meaning of
+reported results.
+
+\end{document}

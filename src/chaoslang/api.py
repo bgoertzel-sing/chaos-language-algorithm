@@ -11,6 +11,7 @@ from .core.edits import EditApplier
 from .core.types import GrammarState, ParseEntry, Token, expand_parse
 from .mining.ngram import NGramPatternMiner
 from .scoring import SimpleMDLScorer
+from .trie_miner import SuffixTrieMiner
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class CLA:
         enable_categories: bool = True,
         category_method: str = "exact",
         js_threshold: float = 0.1,
+        miner: str = "ngram",
     ) -> None:
         self.max_iterations = max_iterations
         self.seed = seed
@@ -61,7 +63,12 @@ class CLA:
         self._rng = random.Random(seed)
         if max_ngram is not None:
             n_max = max_ngram
-        self.miner = NGramPatternMiner(n_min=n_min, n_max=n_max, min_uses=min_uses)
+        if miner == "ngram":
+            self.miner = NGramPatternMiner(n_min=n_min, n_max=n_max, min_uses=min_uses)
+        elif miner == "suffix_trie":
+            self.miner = SuffixTrieMiner(n_min=n_min, n_max=n_max, min_uses=min_uses)
+        else:
+            raise ValueError(f"unknown miner: {miner!r}; use 'ngram' or 'suffix_trie'")
         self.applier = EditApplier()
         self.scorer = SimpleMDLScorer()
 

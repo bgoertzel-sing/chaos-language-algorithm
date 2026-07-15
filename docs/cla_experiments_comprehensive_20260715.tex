@@ -1,0 +1,322 @@
+% ASCII-only LaTeX. Evidence cutoff 2026-07-15.
+\documentclass[11pt]{article}
+\usepackage[margin=0.85in]{geometry}
+\usepackage{booktabs,longtable,array,amsmath,amssymb,hyperref,microtype}
+\hypersetup{hidelinks}
+\emergencystretch=3em
+\newcommand{\observed}{\textbf{Observed:}}
+\newcommand{\inferred}{\textbf{Inferred:}}
+\newcommand{\limitn}{\textbf{Limitation:}}
+\title{Chaos Language Algorithm Experiments\\A Comprehensive Evidence-Bounded Report}
+\author{Chaos Language Algorithm / OmegaSim projects}
+\date{Evidence cutoff: July 15, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report consolidates every durable Chaos Language Algorithm (CLA)
+experiment found in the project and repository records through July 15, 2026,
+with emphasis on the newer high-dimensional work absent from earlier reports.
+CLA currently provides exact-reconstructing symbolic grammar induction,
+low-cardinality and fixed symbolization, an approximate two-part compression
+proxy, shuffled-surrogate comparisons, and held-out n-gram diagnostics. Across
+the evidence, exact reconstruction is reliable, raw rectangular partitions
+fail in high dimension, and low-cardinality microstates restore recurrence.
+However, positive compression margins are not unique to VAMP embeddings, and a
+leakage-free rank-conditioned comparison rejected further linear-VAMP tuning:
+VAMP beat matched PCA controls on both primary metrics in zero of three
+trajectories at both alphabet sizes. The report therefore separates positive
+engineering results, detector failures, null comparisons, and hypotheses; it
+does not claim a validated chaos classifier or calibrated CLA likelihood.
+\end{abstract}
+
+\section{Scope, sources, and epistemic discipline}
+
+The canonical code is the \texttt{chaoslang} repository on branch
+\path{agent/hd-embedding-cla}; the report build uses commit \texttt{974af31}
+plus this document. OmegaSim detector integration uses branch
+\path{agent/cla-detector-prereg}, commit \texttt{5a6002b}. Durable run records
+are under \path{projects/chaos-language-algorithm/experiments}, repository
+\path{experiments}, and \path{projects/omegasim/experiments}.
+
+\observed{} denotes direct code, artifact, or recorded-run evidence.
+\inferred{} denotes interpretation that follows from those observations.
+Proxy quantities retain historical ``bits'' field names where necessary, but
+the current scorer is not a complete calibrated code. Held-out perplexity is
+from a smoothed n-gram model over symbols, not from a predictive CLA grammar.
+
+\section{Detector pipeline and what each metric establishes}
+
+The experimental pipeline is
+\[
+  x_{1:n} \rightarrow \hbox{symbolizer} \rightarrow s_{1:n}
+  \rightarrow \hbox{CLA grammar and exact parse}.
+\]
+CLA greedily proposes repeated chunks and contextual categories while requiring
+the final grammar/parse to expand exactly to the original symbol stream.
+
+\begin{longtable}{p{0.23\linewidth}p{0.34\linewidth}p{0.35\linewidth}}
+\toprule
+Measurement & What it directly checks & What it does not establish \\
+\midrule
+\endhead
+Exact reconstruction & Grammar and parse losslessly reproduce the observed
+symbols & Generating partition, chaos, prediction, or useful abstraction \\
+Compression proxy & Current grammar representation is shorter/longer than an
+empirical-symbol baseline under the implemented proxy & A calibrated MDL code,
+likelihood, or significance level \\
+Real-minus-surrogate margin & Temporal order helps relative to a specified
+shuffle/block surrogate & Uniqueness to the proposed embedding or dynamics \\
+Held-out n-gram loss & Symbol stream has train-to-test finite-order predictive
+regularity & Predictive performance of the CLA grammar itself \\
+Embedding singular values & Numerical modes returned by a kinetic estimator &
+Validated slow processes when modes are near one or conditioning is weak \\
+\bottomrule
+\end{longtable}
+
+\section{Baseline attractor and scaling experiments}
+
+The first lane used an equal-width rectangular partition (M1) and a small greedy
+CLA budget. All recorded runs reconstructed exactly. Table~\ref{tab:m1}
+consolidates the baseline records.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{lrrrrr}
+\toprule
+System & Dim. & Samples & Unique symbols & Rules & Proxy score \\
+\midrule
+Mackey--Glass & 1 & 256 & 4 & 6 & 44.4 \\
+Logistic map & 1 & 256 & 4 & 8 & 113.2 \\
+Lorenz--63 & 3 & 256 & 21 & 8 & 187.2 \\
+Rossler & 3 & 256 & 24 & 8 & 189.2 \\
+Lorenz--96 & 5 & 256 & 56 & 8 & 234.2 \\
+Lorenz--96 & 8 & 256 & 78 & 8 & 229.2 \\
+Lorenz--96 & 12 & 256 & 107 & 6 & 241.4 \\
+Lorenz--96 & 16 & 256 & 121 & 3 & 248.7 \\
+Lorenz--96 & 20 & 256 & 127 & 6 & 251.4 \\
+Lorenz--96 & 24 & 256 & 148 & 5 & 251.5 \\
+Lorenz--96 trie/JS & 20 & 1024 & 510 & 8 & 1021.2 \\
+\bottomrule
+\end{tabular}
+\caption{Recorded M1 experiments. Scores are proxy units, not calibrated bits.}
+\label{tab:m1}
+\end{table}
+
+\observed{} In the strongest high-dimensional M1 record, 1024 samples of
+20-dimensional Lorenz--96 yielded 510 unique compound symbols, eight accepted
+chunk rules, no category, score 1021.2, and 2.55 seconds fit time. Provenance:
+\texttt{20260709T192728Z-lorenz96-1024-dim20-suffix-trie} at commit
+\texttt{b344aa3c}. The score stayed close to raw sequence length.
+
+\inferred{} The main failure occurred before grammar induction: the Cartesian
+partition produced an alphabet too sparse for robust recurrence. The run is not
+evidence that Lorenz--96 lacks symbolic grammar. It motivated choosing alphabet
+cardinality directly with microstates.
+
+\section{Lifted Lorenz--63 Phase-1 experiment}
+
+The first adaptive high-dimensional experiment lifted Lorenz--63 into
+$\mathbb{R}^{256}$ with small deterministic noise, used a dependency-free
+kinetic map to dimension three, clustered microstates, and compared with raw M1.
+
+\observed{} In the one-seed diagnostic, adaptive microstates achieved a
+real-minus-shuffled compression proxy of 39.33 versus 2.10 for M1. Held-out
+n-gram perplexity was 3.42 versus 433.18. Exact reconstruction held. Provenance:
+\texttt{20260712T200000Z-lorenz63-lift256-phase1}.
+
+\inferred{} Low-cardinality symbolization decisively repaired the M1 alphabet
+explosion on this fixture. The run did not isolate the kinetic embedding from
+clustering, used one trajectory, and did not compare against direct raw-space
+k-means. It therefore supported the pipeline seam, not VAMP superiority.
+
+\section{Lifted Lorenz--63 multi-seed VAMP sweep}
+
+The next preregistered sweep used three seeds, a 192-point retained trajectory,
+a noisy $\mathbb{R}^{256}$ lift, deeptime VAMP dimensions $\{3,5\}$, alphabet
+sizes $\{8,16,24\}$, and lags $\{1,3\}$. It produced 36 VAMP rows and nine
+controls.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+Method/aggregate & Rows & Mean proxy margin & Mean n-gram perplexity \\
+\midrule
+deeptime VAMP overall & 36 & 8.085 & 11.628 \\
+direct raw xyz k-means & 3 & 12.200 & 3.697 \\
+dependency-free reference & 3 & 15.167 & 4.151 \\
+raw compound M1 & 3 & 1.867 & 257.769 \\
+\bottomrule
+\end{tabular}
+\caption{Aggregate multi-seed results; proxy margins are not calibrated MDL.}
+\end{table}
+
+\observed{} All 36 VAMP configurations had positive real-minus-shuffled proxy
+margins, but direct xyz k-means and the dependency-free reference were as good
+or better on the aggregate metrics. No categories emerged. The recorded
+near-unit singular values exposed a diagnostics bug: finite-only validation had
+failed to flag invalid or implausible implied timescales. The writer was repaired
+to preserve raw values and fail closed. Provenance:
+\texttt{20260712T200200Z-lorenz63-r256-deeptime-multiseed}, commits
+\texttt{bee5965} and \texttt{64e9dd6}.
+
+\inferred{} Positive shuffled-surrogate margins were a property of many
+low-cardinality streams, not evidence uniquely favoring VAMP. The correct next
+comparison required leakage-free train-only transforms and alphabet-matched
+PCA/raw controls.
+
+\section{Leakage-free rank-conditioned VAMP/TICA test}
+
+The decisive follow-up used three independent 2048-point Lorenz--63
+trajectories, train-only noisy $\mathbb{R}^{256}$ lifts, 60/20/20 blocked splits
+with 16-point lag gaps, PCA ranks $\{3,10\}$, VAMP/TICA dimensions $\{2,3\}$,
+lags $\{1,4,16\}$, $k=\{8,16\}$, and 20 circular block surrogates at block
+lengths 4 and 16. Selection occurred on blocked validation VAMP-2 and test was
+evaluated once.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{rrrrrr}
+\toprule
+Seed & $k$ & VAMP loss & best PCA loss & VAMP margin & best PCA margin \\
+\midrule
+101 & 8 & 0.434 & 0.420 & 5.20 & 3.65 \\
+202 & 8 & 0.482 & 0.423 & 5.20 & 5.55 \\
+303 & 8 & 0.615 & 0.543 & 13.00 & 7.30 \\
+101 & 16 & 0.731 & 0.710 & 4.30 & 2.60 \\
+202 & 16 & 0.771 & 0.727 & 4.25 & 3.05 \\
+303 & 16 & 1.050 & 0.952 & 3.90 & 9.00 \\
+\bottomrule
+\end{tabular}
+\caption{Test loss in bits/symbol; margin is the minimum proxy margin across
+block lengths. Lower loss and higher margin are better.}
+\end{table}
+
+\observed{} VAMP beat the best matched PCA control on both metrics in zero of
+three trajectories for $k=8$ and zero of three for $k=16$, versus the
+preregistered requirement of at least two of three. VAMP test loss was worse in
+every seed/alphabet stratum. All 72 estimator candidates were numerically valid;
+selected modes were near-unit, so they were not treated as standalone kinetic
+evidence. Runtime was 163 seconds and the full suite passed 115 tests.
+Provenance: \texttt{20260713T153839Z-lorenz63-rank-conditioned-vamp-tica},
+commit \texttt{4423f8f}.
+
+\inferred{} Linear VAMP development correctly stopped. This bounded null result
+does not reject nonlinear embeddings, other dynamics, or CLA; it rejects the
+claim that the tested linear VAMP path improved on matched PCA for this lift.
+
+\section{OmegaSim restart under a fresh detector preregistration}
+
+Ben approved restarting OmegaSim on July 15 under a new preregistration. The
+frozen design evaluates A6 gain 5.0, coupling $\{0.35,0.60\}$, delay $\{0,3\}$,
+controls \{appraisal, linear, shuffled\}, five seeds, and separate 4D, 8D, and
+20D feature strata. A deterministic $k=8$ microstate model is fit on the first
+60 percent of each trajectory and frozen before evaluation. Each row uses five
+marginal-preserving symbol surrogates.
+
+The row-level detector requires exact reconstruction, at least four occupied
+states, positive proxy margin, and held-out order-2 loss at least 0.10
+bits/symbol below the surrogate mean. Promotion additionally requires appraisal
+to beat both matched dynamics controls on both metrics in at least four of five
+seeds, without pooling dimensionality strata. Full protocol:
+\texttt{omegasim/docs/cla\_detector\_preregistration\_20260715.md}.
+
+\observed{} The local CPU run completed all 180 rows in 31 minutes 26 seconds.
+All row-level software invariants passed. Exactly one of the twelve frozen
+tuple/stratum promotion cells met the four-of-five matched-seed criterion:
+coupling 0.60, delay 3, and the 8D role stratum. Appraisal beat both linear and
+shuffled controls on compression margin and held-out loss in four seeds; seed
+29 missed because its compression margin (118.6 proxy bits) was below the
+linear control (132.2), although its held-out loss was lower. No other cell
+reached four wins; the next highest cells reached three.
+
+\inferred{} This is bounded positive evidence that the frozen CLA feature path
+distinguishes appraisal dynamics from the two exact-tuple controls in one
+predeclared regime. It is not evidence that the dynamics form a strange
+attractor, that roles are semantic grammar categories, or that CLA is a
+calibrated chaos detector. The singled-out cell now requires an untouched
+replication and the still-required Mackey--Glass/Lorenz--96 calibration battery.
+Immutable artifacts have SHA-256
+\texttt{2539b8381b8e85317a7ca4ae53643483153c8f3535dabbef282abec880902eb4}
+(JSON) and
+\texttt{5dd819af1b76b40811712b8452adab8c5bcb57f1066847bf56cb779a7bd6e729}
+(CSV).
+
+\section{Implemented but not yet decisive experimental lanes}
+
+\begin{itemize}
+\item Train-fitted deterministic k-means symbolization is now a first-class
+leakage-safe object (commit \texttt{974af31}); functional tests establish no
+test-data refit, not scientific superiority.
+\item Frozen-suffix coding and deterministic model encodings were implemented
+on a separate branch (commits \texttt{5be45e5}, \texttt{ce0e476}) with 140 full
+tests passing. The preregistered held-out benchmark has not yet produced a
+durable result, so calibrated predictive coding remains open.
+\item PCCA+ soft memberships exist in the optional backend, but automatic
+category seeding and a decisive category recovery experiment remain pending.
+\item The bounded suffix trie has functional/node-bound tests and one 2.55 s
+Lorenz--96 run, but no matched wall-time/peak-memory comparison against the old
+brute-force miner.
+\end{itemize}
+
+\section{Current implementation validation}
+
+\observed{} On July 15, the command
+\path{PYTHONPATH=src python3 -m unittest discover -s tests -v} completed 126
+tests in 47.394 seconds with status OK on the report branch. This includes the
+optional deeptime-backed tests available in the local environment and the new
+train-fitted k-means no-refit regressions. A passing software suite establishes
+the declared invariants and fixture behavior; it does not convert the null
+scientific comparisons above into positive evidence.
+
+\section{Conclusions and claim ledger}
+
+\begin{longtable}{p{0.42\linewidth}p{0.16\linewidth}p{0.34\linewidth}}
+\toprule
+Claim & Status & Evidence / qualification \\
+\midrule
+\endhead
+CLA exactly reconstructs tested symbolic streams & Supported & All durable
+baseline and high-dimensional runs plus regression tests \\
+Raw rectangular M1 scales poorly in high dimension & Supported for tested
+fixtures & 510 unique symbols in 1024 by 20D; near-raw proxy score \\
+Low-cardinality microstates restore recurrence & Supported & Lifted one-seed
+and multi-seed runs; direct controls also strong \\
+Positive proxy margin uniquely indicates grammar-bearing embedding & Rejected &
+Direct raw/reference controls were equally or more positive \\
+Linear VAMP improves matched PCA on lifted Lorenz--63 & Rejected for frozen
+protocol & Zero of three joint wins at both $k$ values \\
+CLA is a validated chaos detector & Not established & No calibrated operating
+curve, likelihood, or matched broad benchmark battery \\
+CLA categories recover meaningful attractor lobes & Not established & No
+categories in the main high-dimensional sweeps \\
+OmegaSim appraisal dynamics differ under the frozen CLA proxy in one regime &
+Bounded support & One of twelve cells promoted: coupling 0.60, delay 3, roles8,
+with matched wins in four of five seeds; untouched replication required \\
+\bottomrule
+\end{longtable}
+
+The central scientific lesson is methodological: symbolization and controls
+dominate interpretation. Exact reconstruction is necessary but easy; positive
+compression relative to a weak shuffle is insufficient; and a useful embedding
+must beat alphabet-matched, train-only alternatives on held-out prediction and
+temporal-grammar diagnostics simultaneously. The current evidence supports CLA
+as an inspectable experimental grammar toolkit. It does not yet support CLA as
+a calibrated strange-attractor classifier.
+
+\section*{Reproduction pointers}
+
+Each project-level experiment directory contains \texttt{RUN.md},
+\texttt{command.sh}, environment/git captures, status, logs, raw JSON/CSV, and
+checksums where available. The decisive records are:
+\begin{itemize}
+\item \texttt{20260709T192728Z-lorenz96-1024-dim20-suffix-trie}
+\item \texttt{20260712T200000Z-lorenz63-lift256-phase1}
+\item \texttt{20260712T200200Z-lorenz63-r256-deeptime-multiseed}
+\item \texttt{20260713T153839Z-lorenz63-rank-conditioned-vamp-tica}
+\item \texttt{20260715T153049Z-cla-detector-preregistered} (OmegaSim)
+\end{itemize}
+
+\end{document}

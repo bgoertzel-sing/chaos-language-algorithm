@@ -67,6 +67,49 @@ class ChunkMVPTests(unittest.TestCase):
         self.assertEqual(m1.grammar.productions, m2.grammar.productions)
         self.assertEqual(m1.score.total, m2.score.total)
 
+    def test_bounded_suffix_trie_matches_bruteforce_for_compound_symbols(self):
+        symbols = [
+            f"d{dim}:b{bucket}"
+            for _cycle in range(4)
+            for dim, bucket in ((0, 1), (1, 3), (2, 5), (0, 1), (1, 3))
+        ]
+        state = GrammarState.initial(symbols)
+        proposals = NGramPatternMiner(max_ngram=5, min_uses=2).propose_chunks(state)
+
+        expected = _bruteforce_chunk_keys(state, max_ngram=5, min_uses=2)
+        observed = {
+            (tuple((entry.kind, entry.value) for entry in proposal.block), proposal.occurrences)
+            for proposal in proposals
+        }
+        self.assertEqual(observed, expected)
+        self.assertTrue(all(len(p.block) <= 5 for p in proposals))
+
+    def test_bounded_suffix_trie_handles_high_cardinality_stream(self):
+        motif = tuple(f"d{i}:b{(i * 7) % 23}" for i in range(20))
+        symbols = list(motif * 6) + [f"unique:{i}" for i in range(120)] + list(motif * 4)
+        state = GrammarState.initial(symbols)
+        proposals = NGramPatternMiner(max_ngram=20, min_uses=3).propose_chunks(state)
+
+        self.assertTrue(proposals)
+        self.assertEqual(tuple(token.value for token in proposals[0].block), motif)
+        self.assertGreaterEqual(len(proposals[0].occurrences), 3)
+
+
+def _bruteforce_chunk_keys(state, *, max_ngram: int, min_uses: int):
+    expected = set()
+    parse = state.parse
+    for n in range(2, min(max_ngram, len(parse)) + 1):
+        positions = {}
+        for i in range(0, len(parse) - n + 1):
+            block = tuple(parse[i : i + n])
+            key = tuple((entry.kind, entry.value) for entry in block)
+            positions.setdefault(key, []).append(i)
+        for key, starts in positions.items():
+            occurrences = select_non_overlapping(starts, n)
+            if len(occurrences) >= min_uses:
+                expected.add((key, occurrences))
+    return expected
+
 
 if __name__ == "__main__":
     unittest.main()
