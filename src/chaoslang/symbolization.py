@@ -160,6 +160,39 @@ class KMeansResult:
     iterations: int
 
 
+@dataclass(frozen=True)
+class KMeansSymbolizer:
+    """Train-fitted deterministic k-means symbolizer for leakage-free use."""
+
+    centers: tuple[Point, ...]
+    prefix: str = "km"
+
+    @classmethod
+    def fit(
+        cls,
+        reference_trajectory: Sequence[Sequence[float] | float],
+        *,
+        k: int = 32,
+        max_iterations: int = 50,
+        seed: int = 0,
+        prefix: str = "km",
+    ) -> "KMeansSymbolizer":
+        result = kmeans_microstates(
+            reference_trajectory, k=k, max_iterations=max_iterations, seed=seed
+        )
+        if not result.centers:
+            raise ValueError("reference trajectory must not be empty")
+        return cls(result.centers, prefix)
+
+    def symbolize(
+        self, trajectory: Sequence[Sequence[float] | float]
+    ) -> tuple[str, ...]:
+        points = coerce_points(trajectory)
+        if points and len(points[0]) != len(self.centers[0]):
+            raise ValueError("trajectory dimension does not match fitted centers")
+        return tuple(f"{self.prefix}{_nearest_center(point, self.centers)}" for point in points)
+
+
 def coerce_points(trajectory: Sequence[Sequence[float] | float]) -> tuple[Point, ...]:
     """Return a tuple of float points from scalar or vector trajectory samples."""
 

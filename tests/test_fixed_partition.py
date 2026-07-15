@@ -4,6 +4,7 @@ import unittest
 
 from chaoslang.symbolization import (
     FixedPartitionSymbolizer,
+    KMeansSymbolizer,
     fixed_partition_symbols,
     kmeans_microstates,
 )
@@ -82,6 +83,23 @@ class FixedPartitionTests(unittest.TestCase):
         symbolizer.symbolize(second)
         self.assertEqual(symbolizer.bounds, bounds_before)
         self.assertEqual(symbolizer.symbolize((0.0, 10.0)), ("fp0", "fp1"))
+
+    def test_fitted_kmeans_symbolizer_does_not_refit_on_test_data(self):
+        reference = ((0.0, 0.0), (0.1, 0.1), (9.9, 10.0), (10.0, 9.9))
+        symbolizer = KMeansSymbolizer.fit(reference, k=2, seed=3)
+        centers = symbolizer.centers
+
+        first = symbolizer.symbolize(((0.2, 0.2), (9.8, 9.8)))
+        second = symbolizer.symbolize(((100.0, 100.0), (0.2, 0.2)))
+
+        self.assertNotEqual(first[0], first[1])
+        self.assertEqual(first[0], second[1])
+        self.assertEqual(symbolizer.centers, centers)
+
+    def test_fitted_kmeans_symbolizer_rejects_wrong_dimension(self):
+        symbolizer = KMeansSymbolizer.fit(((0.0, 0.0), (1.0, 1.0)), k=2)
+        with self.assertRaisesRegex(ValueError, "dimension"):
+            symbolizer.symbolize((0.5,))
 
 
 if __name__ == "__main__":
